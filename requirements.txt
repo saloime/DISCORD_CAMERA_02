@@ -1,3 +1,4 @@
 fal-client
 discord
 requests
+dotenv
