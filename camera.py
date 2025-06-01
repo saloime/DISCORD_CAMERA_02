@@ -2,6 +2,8 @@ import os
 import discord
 import requests
 import tempfile
+import asyncio
+import concurrent.futures
 from dotenv import load_dotenv
 import fal_client
 
@@ -9,13 +11,18 @@ load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 FAL_KEY = os.getenv("FAL_KEY")
 
-
 DEFAULT_PROMPT = "in the style of the Simpson's cartoon animation illustration"
 
 intents = discord.Intents.default()
 intents.message_content = True
 
 client = discord.Client(intents=intents)
+
+executor = concurrent.futures.ThreadPoolExecutor()
+
+async def get_fal_result(request_id):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(executor, lambda: fal_client.result("fal-ai/flux-pro/kontext/max", request_id))
 
 @client.event
 async def on_ready():
@@ -44,7 +51,7 @@ async def on_message(message):
             fal_upload_url = fal_client.upload_file(temp_file_path)
             print(f"✅ Uploaded to Fal: {fal_upload_url}")
 
-            # Step 3: Send to Fal model
+            # Step 3: Submit to Fal model
             fal_response = fal_client.submit(
                 "fal-ai/flux-pro/kontext/max",
                 arguments={
@@ -58,8 +65,8 @@ async def on_message(message):
             )
             request_id = fal_response.request_id
 
-            # Step 4: Poll for result (basic synchronous)
-            result = fal_client.result("fal-ai/flux-pro/kontext/max", request_id)
+            # Step 4: Poll for result asynchronously
+            result = await get_fal_result(request_id)
             if "images" in result:
                 result_url = result["images"][0]["url"]
                 await message.channel.send(f"image:\n{result_url}")
