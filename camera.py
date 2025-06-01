@@ -30,24 +30,33 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
+    # Filter out messages from the bot itself or non-messages
     if message.author.bot:
         return
 
-    if message.attachments:
-        user_prompt = message.content.strip() or DEFAULT_PROMPT
-        attachment = message.attachments[0]
-        image_url = attachment.url
+    print(f"🔥 on_message triggered by: {message.author} - {message.content}")
 
+    # Only process messages that start with '!generate' and have an image attachment
+    if message.attachments and message.content.startswith("!generate"):
+        user_prompt = message.content.replace("!generate", "").strip() or DEFAULT_PROMPT
+        attachment = message.attachments[0]
+
+        # Process only image files
+        if not attachment.content_type or not attachment.content_type.startswith("image/"):
+            await message.channel.send("⚠️ Please attach an image file.")
+            return
+
+        image_url = attachment.url
         await message.channel.send(f"sending image...")
 
         try:
-            # Step 1: Download Discord image to temp file
+            # Step 1: Download the Discord image to a temp file
             image_response = requests.get(image_url)
             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
                 temp_file.write(image_response.content)
                 temp_file_path = temp_file.name
 
-            # Step 2: Upload image to Fal using fal_client
+            # Step 2: Upload the image to Fal using fal_client
             fal_upload_url = fal_client.upload_file(temp_file_path)
             print(f"✅ Uploaded to Fal: {fal_upload_url}")
 
