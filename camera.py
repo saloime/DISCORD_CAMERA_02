@@ -19,6 +19,7 @@ intents.message_content = True
 client = discord.Client(intents=intents)
 
 executor = concurrent.futures.ThreadPoolExecutor()
+processed_messages = set()  # Track processed message IDs
 
 async def get_fal_result(request_id):
     loop = asyncio.get_event_loop()
@@ -27,21 +28,27 @@ async def get_fal_result(request_id):
 @client.event
 async def on_ready():
     print(f'✅ Bot connected as {client.user}')
+    print(f'✅ Connected to {len(client.guilds)} server(s)')
 
 @client.event
 async def on_message(message):
-    # Filter out messages from the bot itself or non-messages
     if message.author.bot:
         return
 
-    print(f"🔥 on_message triggered by: {message.author} - {message.content}")
+    print(f"sending images...: {message.id} | {message.author} | {message.content}")
 
-    # Only process messages that start with '!generate' and have an image attachment
-    if message.attachments and message.content.startswith("!generate"):
-        user_prompt = message.content.replace("!generate", "").strip() or DEFAULT_PROMPT
+    # Prevent processing the same message multiple times
+    if message.id in processed_messages:
+        print(f" {message.id}, skipping...")
+        return
+    processed_messages.add(message.id)
+
+    # Process any message with an attachment
+    if message.attachments:
+        user_prompt = message.content.strip() or DEFAULT_PROMPT
         attachment = message.attachments[0]
 
-        # Process only image files
+        # Optional: Only process image attachments (not PDFs etc.)
         if not attachment.content_type or not attachment.content_type.startswith("image/"):
             await message.channel.send("⚠️ Please attach an image file.")
             return
@@ -58,7 +65,7 @@ async def on_message(message):
 
             # Step 2: Upload the image to Fal using fal_client
             fal_upload_url = fal_client.upload_file(temp_file_path)
-            print(f"✅ Uploaded to Fal: {fal_upload_url}")
+            print(f"sending image... {fal_upload_url}")
 
             # Step 3: Submit to Fal model
             fal_response = fal_client.submit(
