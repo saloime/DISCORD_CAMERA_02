@@ -4,4 +4,5 @@ requests
 dotenv
 openai
 google-auth
+google-auth-oauthlib
 google-api-python-client

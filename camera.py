@@ -27,6 +27,10 @@ GMAIL_SENDER = os.getenv("GMAIL_SENDER")
 GMAIL_RECIPIENT = os.getenv("GMAIL_RECIPIENT")
 GMAIL_SMTP_PASSWORD = os.getenv("GMAIL_SMTP_PASSWORD")
 GOOGLE_SERVICE_ACCOUNT_B64 = os.getenv("GOOGLE_SERVICE_ACCOUNT_B64")
+DRIVE_FOLDER_ID = os.getenv("FOLDER_ID")
+GOOGLE_CLIENT_ID_DISCORD_BOT = os.getenv("GOOGLE_CLIENT_ID_DISCORD_BOT")
+GOOGLE_CLIENT_SECRET_DISCORD_BOT = os.getenv("GOOGLE_CLIENT_SECRET_DISCORD_BOT")
+GOOGLE_REFRESH_TOKEN_DISCORD_BOT = os.getenv("GOOGLE_REFRESH_TOKEN_DISCORD_BOT")
 
 IMAGE_MODEL = "fal-ai/flux-pro/kontext/max"
 CINEMA_MODEL = "fal-ai/kling-video/v3/pro/image-to-video"
@@ -39,16 +43,23 @@ DEFAULT_PROMPT_VIDEO = "zoom, camera pan, details in focus"
 CINEMA_DURATIONS = {"short": "5", "default": "10", "long": "30"}
 VIDEO_DURATIONS = {"short": 6, "default": 10, "long": 20}
 
-DRIVE_ROOT_FOLDER = "discord_bot"
-
 # Google API setup
 def _get_sa_creds(scopes):
     sa_info = json.loads(base64.b64decode(GOOGLE_SERVICE_ACCOUNT_B64))
     return service_account.Credentials.from_service_account_info(sa_info, scopes=scopes)
 
-drive_service = build("drive", "v3", credentials=_get_sa_creds(
-    ["https://www.googleapis.com/auth/drive"]
-))
+# Drive uses OAuth2 user credentials (service accounts have no storage quota)
+from google.oauth2.credentials import Credentials as OAuthCredentials
+drive_creds = OAuthCredentials(
+    token=None,
+    refresh_token=GOOGLE_REFRESH_TOKEN_DISCORD_BOT,
+    client_id=GOOGLE_CLIENT_ID_DISCORD_BOT,
+    client_secret=GOOGLE_CLIENT_SECRET_DISCORD_BOT,
+    token_uri="https://oauth2.googleapis.com/token",
+)
+drive_service = build("drive", "v3", credentials=drive_creds)
+
+# Calendar uses service account (no storage needed)
 calendar_service = build("calendar", "v3", credentials=_get_sa_creds(
     ["https://www.googleapis.com/auth/calendar"]
 ))
@@ -56,41 +67,28 @@ calendar_service = build("calendar", "v3", credentials=_get_sa_creds(
 CALENDAR_ID = GMAIL_RECIPIENT  # cwright.evans@gmail.com
 
 
-def share_with_owner(file_id):
-    """Share a Drive file/folder with the user's personal Gmail so it appears in their Drive."""
-    drive_service.permissions().create(
-        fileId=file_id,
-        body={"type": "user", "role": "writer", "emailAddress": GMAIL_RECIPIENT},
-    ).execute()
-    print(f"Shared {file_id} with {GMAIL_RECIPIENT}")
-
-
-def find_or_create_folder(name, parent_id=None):
-    query = f"name='{name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
-    if parent_id:
-        query += f" and '{parent_id}' in parents"
+def find_or_create_daily_folder():
+    """Find or create today's date folder inside the user-owned Drive folder."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    query = (
+        f"name='{today}' and mimeType='application/vnd.google-apps.folder' "
+        f"and '{DRIVE_FOLDER_ID}' in parents and trashed=false"
+    )
     results = drive_service.files().list(q=query, fields="files(id)").execute()
     files = results.get("files", [])
     if files:
         return files[0]["id"]
-    metadata = {"name": name, "mimeType": "application/vnd.google-apps.folder"}
-    if parent_id:
-        metadata["parents"] = [parent_id]
+    metadata = {
+        "name": today,
+        "mimeType": "application/vnd.google-apps.folder",
+        "parents": [DRIVE_FOLDER_ID],
+    }
     folder = drive_service.files().create(body=metadata, fields="id").execute()
-    # Share root folder with personal account so it shows up in their Drive
-    if not parent_id:
-        share_with_owner(folder["id"])
     return folder["id"]
 
 
-def get_daily_folder_id():
-    root_id = find_or_create_folder(DRIVE_ROOT_FOLDER)
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    return find_or_create_folder(today, root_id)
-
-
 def upload_to_drive(file_path, filename, mime_type="image/jpeg"):
-    folder_id = get_daily_folder_id()
+    folder_id = find_or_create_daily_folder()
     metadata = {"name": filename, "parents": [folder_id]}
     media = MediaFileUpload(file_path, mimetype=mime_type)
     uploaded = drive_service.files().create(body=metadata, media_body=media, fields="id").execute()
