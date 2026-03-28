@@ -287,62 +287,92 @@ async def on_message(message):
                 executor, lambda: parse_ocr_with_openai(ocr_text)
             )
 
+            # Each step runs independently — one failure won't block the rest
+            todoist_ok = False
+            calendar_ok = False
+            email_ok = False
+            drive_ok = False
+
             # Create Todoist task
-            await asyncio.get_event_loop().run_in_executor(
-                executor, lambda: create_todoist_task(parsed)
-            )
+            try:
+                await asyncio.get_event_loop().run_in_executor(
+                    executor, lambda: create_todoist_task(parsed)
+                )
+                todoist_ok = True
+            except Exception as e:
+                print(f"Todoist failed: {e}")
 
             # Create calendar event if date/time detected
-            calendar_created = False
             if parsed.get("is_event") and parsed.get("event_start"):
                 try:
                     await asyncio.get_event_loop().run_in_executor(
                         executor, lambda: create_calendar_event(parsed)
                     )
-                    calendar_created = True
+                    calendar_ok = True
                 except Exception as e:
                     print(f"Calendar event failed: {e}")
 
-            # Build email body
-            email_lines = [f"Summary: {parsed['summary']}", ""]
-            for field in ["who", "what", "when", "where", "why"]:
-                val = parsed.get(field)
-                if val:
-                    email_lines.append(f"{field.capitalize()}: {val}")
-            if parsed.get("web_links"):
-                email_lines.append("\nLinks:")
-                for link in parsed["web_links"]:
-                    email_lines.append(f"  {link}")
-            email_lines.append(f"\n--- Full OCR Text ---\n{ocr_text}")
+            # Build and send email
+            try:
+                email_lines = [f"Summary: {parsed['summary']}", ""]
+                for field in ["who", "what", "when", "where", "why"]:
+                    val = parsed.get(field)
+                    if val:
+                        email_lines.append(f"{field.capitalize()}: {val}")
+                if parsed.get("web_links"):
+                    email_lines.append("\nLinks:")
+                    for link in parsed["web_links"]:
+                        email_lines.append(f"  {link}")
+                email_lines.append(f"\n--- Full OCR Text ---\n{ocr_text}")
 
-            # Send email with image attached
-            await asyncio.get_event_loop().run_in_executor(
-                executor,
-                lambda: send_email(
-                    f"OCR Capture: {parsed['todoist_title']}",
-                    "\n".join(email_lines),
-                    image_response.content,
-                    attachment.filename or "ocr_image.jpg",
-                ),
-            )
+                await asyncio.get_event_loop().run_in_executor(
+                    executor,
+                    lambda: send_email(
+                        f"OCR Capture: {parsed['todoist_title']}",
+                        "\n".join(email_lines),
+                        image_response.content,
+                        attachment.filename or "ocr_image.jpg",
+                    ),
+                )
+                email_ok = True
+            except Exception as e:
+                print(f"Email failed: {e}")
 
             # Backup source image to Drive
-            await asyncio.get_event_loop().run_in_executor(
-                executor, lambda: upload_to_drive(temp_file_path, f"ocr_{message.id}.jpg", "image/jpeg")
-            )
+            try:
+                await asyncio.get_event_loop().run_in_executor(
+                    executor, lambda: upload_to_drive(temp_file_path, f"ocr_{message.id}.jpg", "image/jpeg")
+                )
+                drive_ok = True
+            except Exception as e:
+                print(f"Drive backup failed: {e}")
 
             # Discord response
-            reply_parts = [
-                f"**Task created:** {parsed['todoist_title']}",
-            ]
-            if calendar_created:
-                reply_parts.append(f"**Event added to calendar:** {parsed.get('event_title', parsed['todoist_title'])}")
-            reply_parts.append(f"**Email sent** with full text + image")
-            reply_parts.append(f"\n**Summary:** {parsed['summary']}")
+            reply_parts = [f"\n**Summary:** {parsed['summary']}"]
             for field in ["who", "when", "where"]:
                 val = parsed.get(field)
                 if val:
                     reply_parts.append(f"**{field.capitalize()}:** {val}")
+            status = []
+            if todoist_ok:
+                status.append(f"Task: {parsed['todoist_title']}")
+            if calendar_ok:
+                status.append(f"Calendar: {parsed.get('event_title', parsed['todoist_title'])}")
+            if email_ok:
+                status.append("Email sent")
+            if drive_ok:
+                status.append("Saved to Drive")
+            fails = []
+            if not todoist_ok:
+                fails.append("Todoist")
+            if not email_ok:
+                fails.append("Email")
+            if not drive_ok:
+                fails.append("Drive")
+            if status:
+                reply_parts.insert(0, " | ".join(status))
+            if fails:
+                reply_parts.append(f"*Failed: {', '.join(fails)}*")
             await message.channel.send("\n".join(reply_parts))
 
         elif mode == "cinema":
