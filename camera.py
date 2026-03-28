@@ -123,7 +123,7 @@ async def get_fal_result(model, request_id):
     return await loop.run_in_executor(executor, lambda: fal_client.result(model, request_id))
 
 
-def parse_ocr_with_openai(ocr_text):
+def parse_image_with_openai(image_url):
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     response = openai_client.chat.completions.create(
         model="gpt-4o-mini",
@@ -132,16 +132,18 @@ def parse_ocr_with_openai(ocr_text):
             {
                 "role": "system",
                 "content": (
-                    "You extract structured information from OCR text. "
+                    "You read and extract ALL text and structured information from images. "
+                    "This may be a photo of a screen, a document, a flyer, a sign, etc. "
                     f"Today's date is {today}. "
                     "Return JSON with these fields:\n"
-                    '  "summary": "1 sentence summary",\n'
+                    '  "full_text": "all text visible in the image, transcribed faithfully",\n'
+                    '  "summary": "1 sentence summary of the content",\n'
                     '  "who": "person or organization, or null",\n'
                     '  "what": "the action, event, or item",\n'
                     '  "when": "date/time if found, or null",\n'
                     '  "where": "location if found, or null",\n'
                     '  "why": "purpose or context, or null",\n'
-                    '  "web_links": ["any URLs found in text"],\n'
+                    '  "web_links": ["any URLs visible in the image"],\n'
                     '  "todoist_title": "short actionable title for a task",\n'
                     '  "due_string": "natural language date for scheduling, or null",\n'
                     '  "is_event": true if this describes a calendar event with a specific date/time,\n'
@@ -151,7 +153,13 @@ def parse_ocr_with_openai(ocr_text):
                     '  "event_location": "location string, or null"'
                 ),
             },
-            {"role": "user", "content": ocr_text},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": image_url}},
+                    {"type": "text", "text": "Extract all information from this image."},
+                ],
+            },
         ],
     )
     return json.loads(response.choices[0].message.content)
@@ -268,24 +276,13 @@ async def on_message(message):
         print(f"Uploaded to Fal: {fal_upload_url}")
 
         if mode == "ocr":
-            await message.channel.send("scanning text...")
+            await message.channel.send("scanning image...")
 
-            fal_response = fal_client.submit(
-                OCR_MODEL,
-                arguments={"input_image_urls": [fal_upload_url], "do_format": True},
-            )
-            result = await get_fal_result(OCR_MODEL, fal_response.request_id)
-            ocr_text = "\n".join(result.get("outputs", []))
-
-            if not ocr_text.strip():
-                await message.channel.send("No text found in image.")
-                os.remove(temp_file_path)
-                return
-
-            # Interpret with OpenAI
+            # Send image directly to GPT-4o-mini vision (better than OCR for photos of screens)
             parsed = await asyncio.get_event_loop().run_in_executor(
-                executor, lambda: parse_ocr_with_openai(ocr_text)
+                executor, lambda: parse_image_with_openai(image_url)
             )
+            ocr_text = parsed.get("full_text", "")
 
             # Each step runs independently — one failure won't block the rest
             todoist_ok = False
