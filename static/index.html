@@ -20,7 +20,35 @@ body {
 #viewfinder {
   position: absolute; top: 0; left: 0; width: 100%; height: 100%;
   object-fit: cover; z-index: 0; transform-origin: center center;
+  display: none;
 }
+#viewfinder.active { display: block; }
+#preview-img {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  object-fit: cover; z-index: 1; display: none;
+}
+#preview-img.visible { display: block; }
+
+/* Idle screen (camera off) */
+#idle-screen {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: #000;
+}
+#idle-screen.hidden { display: none; }
+#idle-hint {
+  color: rgba(255,255,255,0.3); font-size: 15px; margin-top: 16px;
+  text-align: center; line-height: 1.6;
+}
+
+/* Orange flash overlay */
+#flash-overlay {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(255,140,0,0.6); z-index: 5; opacity: 0;
+  pointer-events: none; transition: opacity 0.15s ease;
+}
+#flash-overlay.fire { opacity: 1; }
+
 #zoom-indicator {
   position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
   background: rgba(0,0,0,0.6); color: #fff; padding: 6px 16px; border-radius: 16px;
@@ -45,7 +73,7 @@ body {
 .top-right { display: flex; gap: 10px; }
 #flash-btn { display: none; }
 
-/* Toast notification */
+/* Toast */
 .toast {
   position: absolute; top: 0; left: 0; right: 0; z-index: 25;
   padding: calc(12px + env(safe-area-inset-top)) 20px 14px;
@@ -55,13 +83,8 @@ body {
 }
 .toast.visible { transform: translateY(0); }
 .toast-text { margin-bottom: 6px; }
-.toast-progress {
-  height: 3px; background: rgba(255,255,255,0.15); border-radius: 2px; overflow: hidden;
-}
-.toast-progress-bar {
-  height: 100%; background: #0a84ff; border-radius: 2px;
-  transition: width 0.5s ease;
-}
+.toast-progress { height: 3px; background: rgba(255,255,255,0.15); border-radius: 2px; overflow: hidden; }
+.toast-progress-bar { height: 100%; background: #0a84ff; border-radius: 2px; transition: width 0.5s ease; }
 
 /* Controls */
 .controls {
@@ -79,13 +102,9 @@ body {
   padding: 6px 16px; border-radius: 18px; font-size: 13px; font-weight: 500;
   white-space: nowrap; cursor: pointer; border: 1px solid rgba(255,255,255,0.25);
   background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.7);
-  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-  transition: all 0.2s;
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); transition: all 0.2s;
 }
-.chip.active {
-  background: rgba(255,255,255,0.25); color: #fff;
-  border-color: rgba(255,255,255,0.5);
-}
+.chip.active { background: rgba(255,255,255,0.25); color: #fff; border-color: rgba(255,255,255,0.5); }
 #text-input {
   width: 100%; max-width: 360px; padding: 10px 16px;
   background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2);
@@ -100,13 +119,27 @@ body {
   cursor: pointer; transition: transform 0.1s;
 }
 #capture-btn:active { transform: scale(0.9); }
-#capture-btn:disabled { opacity: 0.4; }
 #gallery-btn {
   width: 44px; height: 44px; border-radius: 10px;
   background: rgba(255,255,255,0.15); border: none; color: #fff;
   font-size: 18px; cursor: pointer;
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
 }
+
+/* Preview controls (send / retake) */
+.preview-controls {
+  position: absolute; bottom: 0; left: 0; right: 0; z-index: 12;
+  padding: 20px 30px calc(24px + env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, rgba(0,0,0,0.85));
+  display: none; justify-content: space-between; align-items: center;
+}
+.preview-controls.visible { display: flex; }
+.preview-btn {
+  padding: 12px 28px; border-radius: 24px; font-size: 16px; font-weight: 600;
+  border: none; cursor: pointer;
+}
+#retake-btn { background: rgba(255,255,255,0.2); color: #fff; }
+#send-btn { background: #0a84ff; color: #fff; }
 
 /* Panels */
 .panel {
@@ -121,8 +154,7 @@ body {
 .panel .close-btn {
   position: sticky; top: 0; float: right;
   background: rgba(255,255,255,0.15); border: none; color: #fff;
-  width: 32px; height: 32px; border-radius: 50%; font-size: 18px; cursor: pointer;
-  z-index: 1;
+  width: 32px; height: 32px; border-radius: 50%; font-size: 18px; cursor: pointer; z-index: 1;
 }
 .panel img, .panel video { width: 100%; border-radius: 12px; margin: 12px 0; }
 .panel h3 { font-size: 16px; margin-bottom: 8px; }
@@ -131,10 +163,9 @@ body {
 .tag.ok { background: rgba(52,199,89,0.3); color: #34c759; }
 .tag.fail { background: rgba(255,69,58,0.3); color: #ff453a; }
 
-/* Help panel */
+/* Help */
 .help-section { margin-bottom: 16px; }
 .help-section h4 { font-size: 14px; color: #0a84ff; margin-bottom: 6px; }
-.help-section p { font-size: 13px; color: rgba(255,255,255,0.6); line-height: 1.6; }
 .help-row { display: flex; gap: 8px; margin: 4px 0; }
 .help-label { font-weight: 600; color: rgba(255,255,255,0.85); min-width: 70px; font-size: 13px; }
 .help-desc { color: rgba(255,255,255,0.55); font-size: 13px; }
@@ -157,8 +188,16 @@ canvas { display: none; }
 </style>
 </head>
 <body>
+
+<!-- Idle screen (camera off) -->
+<div id="idle-screen">
+  <div id="idle-hint">triple-tap shutter to activate camera<br>or pick from gallery</div>
+</div>
+
 <video id="viewfinder" autoplay playsinline muted></video>
+<img id="preview-img">
 <canvas id="canvas"></canvas>
+<div id="flash-overlay"></div>
 <div id="zoom-indicator">1.0x</div>
 
 <!-- Top bar -->
@@ -180,11 +219,11 @@ canvas { display: none; }
 
 <!-- Controls -->
 <div class="controls" id="controls">
-  <div class="mode-chips" id="mode-chips">
-    <div class="chip active" data-mode="" data-label="Simpsons">Simpsons</div>
-    <div class="chip" data-mode="ocr" data-label="OCR">OCR</div>
-    <div class="chip" data-mode="video" data-label="Video">Video</div>
-    <div class="chip" data-mode="cinema" data-label="Cinema">Cinema</div>
+  <div class="mode-chips">
+    <div class="chip active" data-mode="">Simpsons</div>
+    <div class="chip" data-mode="ocr">OCR</div>
+    <div class="chip" data-mode="video">Video</div>
+    <div class="chip" data-mode="cinema">Cinema</div>
   </div>
   <input type="text" id="text-input" placeholder="type a prompt or leave blank..." autocomplete="off" autocorrect="off" spellcheck="false">
   <div class="btn-row">
@@ -192,6 +231,12 @@ canvas { display: none; }
     <input type="file" id="gallery-input" accept="image/*" style="display:none">
     <button id="capture-btn"></button>
   </div>
+</div>
+
+<!-- Preview controls -->
+<div class="preview-controls" id="preview-controls">
+  <button class="preview-btn" id="retake-btn" onclick="retake()">Retake</button>
+  <button class="preview-btn" id="send-btn" onclick="sendCapture()">Send</button>
 </div>
 
 <!-- Result panel -->
@@ -205,25 +250,25 @@ canvas { display: none; }
   <button class="close-btn" onclick="closePanel('help')">&times;</button>
   <h3 style="margin-bottom:16px">How to Use</h3>
   <div class="help-section">
+    <h4>Getting Started</h4>
+    <p style="font-size:13px;color:rgba(255,255,255,0.55)">Triple-tap the shutter to activate the camera. After capture, the camera turns off automatically. Pick from gallery anytime.</p>
+  </div>
+  <div class="help-section">
     <h4>Modes</h4>
     <div class="help-row"><span class="help-label">Simpsons</span><span class="help-desc">Default. Turns your photo into a Simpsons cartoon.</span></div>
-    <div class="help-row"><span class="help-label">OCR</span><span class="help-desc">Reads text from image. Creates a Todoist task, sends email, adds calendar event if a date is found.</span></div>
-    <div class="help-row"><span class="help-label">Video</span><span class="help-desc">Fast 1080p video from your image (LTX). 10s default.</span></div>
-    <div class="help-row"><span class="help-label">Cinema</span><span class="help-desc">Cinematic video from your image (Kling v3). 10s default.</span></div>
+    <div class="help-row"><span class="help-label">OCR</span><span class="help-desc">Reads text from image. Creates Todoist task, sends email, adds calendar event if date found.</span></div>
+    <div class="help-row"><span class="help-label">Video</span><span class="help-desc">Fast 1080p video from image (LTX). 10s default.</span></div>
+    <div class="help-row"><span class="help-label">Cinema</span><span class="help-desc">Cinematic video from image (Kling v3). 10s default.</span></div>
   </div>
   <div class="help-section">
     <h4>Duration Modifiers</h4>
     <div class="help-row"><span class="help-label">short</span><span class="help-desc">Shortest: video 6s, cinema 5s</span></div>
     <div class="help-row"><span class="help-label">long</span><span class="help-desc">Longest: video 20s, cinema 30s</span></div>
-    <p style="margin-top:6px">Type "long cinema" or "short video" in the text box.</p>
+    <p style="margin-top:6px;font-size:13px;color:rgba(255,255,255,0.55)">Type "long cinema" or "short video" in the text box.</p>
   </div>
   <div class="help-section">
     <h4>Custom Prompts</h4>
-    <p>Type anything in the text box to override the default prompt. For video/cinema, type the keyword + your prompt (e.g. "cinema slow dolly zoom").</p>
-  </div>
-  <div class="help-section">
-    <h4>Tips</h4>
-    <p>Text box always wins over mode buttons. Pinch to zoom. Tap the flash icon for torch. Results are saved to history.</p>
+    <p style="font-size:13px;color:rgba(255,255,255,0.55)">Type anything in the text box to override the default. Text box always wins over mode buttons.</p>
   </div>
 </div>
 
@@ -246,20 +291,29 @@ const galleryInput = document.getElementById("gallery-input");
 const toast = document.getElementById("toast");
 const toastText = document.getElementById("toast-text");
 const toastProgress = document.getElementById("toast-progress");
+const flashOverlay = document.getElementById("flash-overlay");
+const previewImg = document.getElementById("preview-img");
+const idleScreen = document.getElementById("idle-screen");
 
 let activeMode = "";
 let currentStream = null;
+let cameraActive = false;
 let flashOn = false;
 let zoomLevel = 1;
 let zoomTimer = null;
+let capturedBlob = null;
 
-// --- Token setup ---
+// Triple-tap tracking
+let tapCount = 0;
+let tapTimer = null;
+
+// --- Token ---
 if (!API_TOKEN) {
   const t = prompt("Enter your API token:");
   if (t) { localStorage.setItem("pwa_token", t); location.reload(); }
 }
 
-// --- Camera ---
+// --- Camera lifecycle ---
 async function startCamera() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -268,21 +322,36 @@ async function startCamera() {
     });
     video.srcObject = stream;
     currentStream = stream;
+    cameraActive = true;
+    video.classList.add("active");
+    idleScreen.classList.add("hidden");
+    zoomLevel = 1;
+    video.style.transform = "";
     checkFlashSupport();
   } catch (e) {
-    console.log("Camera not available, use gallery");
+    console.log("Camera not available");
   }
 }
-startCamera();
+
+function stopCamera() {
+  if (currentStream) {
+    currentStream.getTracks().forEach(t => t.stop());
+    currentStream = null;
+  }
+  video.srcObject = null;
+  video.classList.remove("active");
+  cameraActive = false;
+  flashOn = false;
+  document.getElementById("flash-btn").style.display = "none";
+  document.getElementById("flash-btn").style.background = "rgba(255,255,255,0.15)";
+}
 
 // --- Flash ---
 function checkFlashSupport() {
   const track = currentStream && currentStream.getVideoTracks()[0];
   if (track) {
     const caps = track.getCapabilities ? track.getCapabilities() : {};
-    if (caps.torch) {
-      document.getElementById("flash-btn").style.display = "flex";
-    }
+    if (caps.torch) document.getElementById("flash-btn").style.display = "flex";
   }
 }
 function toggleFlash() {
@@ -294,21 +363,17 @@ function toggleFlash() {
 }
 
 // --- Pinch to Zoom ---
-let pinchStartDist = 0;
-let pinchStartZoom = 1;
-
+let pinchStartDist = 0, pinchStartZoom = 1;
 video.addEventListener("touchstart", (e) => {
   if (e.touches.length === 2) {
     pinchStartDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
     pinchStartZoom = zoomLevel;
   }
 }, { passive: true });
-
 video.addEventListener("touchmove", (e) => {
   if (e.touches.length === 2) {
     const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-    const scale = dist / pinchStartDist;
-    zoomLevel = Math.max(1, Math.min(5, pinchStartZoom * scale));
+    zoomLevel = Math.max(1, Math.min(5, pinchStartZoom * (dist / pinchStartDist)));
     applyZoom();
   }
 }, { passive: true });
@@ -317,9 +382,7 @@ function applyZoom() {
   const track = currentStream && currentStream.getVideoTracks()[0];
   const caps = track ? (track.getCapabilities ? track.getCapabilities() : {}) : {};
   if (caps.zoom) {
-    const maxZoom = caps.zoom.max || 5;
-    const clampedZoom = Math.min(zoomLevel, maxZoom);
-    track.applyConstraints({ advanced: [{ zoom: clampedZoom }] }).catch(() => {});
+    track.applyConstraints({ advanced: [{ zoom: Math.min(zoomLevel, caps.zoom.max || 5) }] }).catch(() => {});
   } else {
     video.style.transform = "scale(" + zoomLevel + ")";
   }
@@ -339,7 +402,7 @@ document.querySelectorAll(".chip").forEach(chip => {
   });
 });
 
-// --- Toast Notifications ---
+// --- Toast ---
 let toastHideTimer = null;
 function showToast(msg, progress) {
   toastText.textContent = msg;
@@ -347,51 +410,98 @@ function showToast(msg, progress) {
   toast.classList.add("visible");
   clearTimeout(toastHideTimer);
 }
-function hideToast() {
-  toast.classList.remove("visible");
-}
+function hideToast() { toast.classList.remove("visible"); }
 
 // --- Panels ---
 function togglePanel(name) {
   const panel = document.getElementById(name + "-panel");
-  if (panel.classList.contains("visible")) {
-    closePanel(name);
-  } else {
-    closeAllPanels();
-    if (name === "history") renderHistory();
-    panel.classList.add("visible");
-  }
+  if (panel.classList.contains("visible")) { closePanel(name); }
+  else { closeAllPanels(); if (name === "history") renderHistory(); panel.classList.add("visible"); }
 }
 function closePanel(name) {
   document.getElementById(name + "-panel").classList.remove("visible");
   document.getElementById("controls").style.display = "flex";
+  if (!cameraActive) idleScreen.classList.remove("hidden");
 }
-function closeAllPanels() {
-  document.querySelectorAll(".panel").forEach(p => p.classList.remove("visible"));
+function closeAllPanels() { document.querySelectorAll(".panel").forEach(p => p.classList.remove("visible")); }
+
+// --- Orange flash effect ---
+function fireFlash() {
+  flashOverlay.classList.add("fire");
+  setTimeout(() => flashOverlay.classList.remove("fire"), 150);
 }
 
-// --- Capture ---
+// --- Capture (triple-tap to activate, single-tap to shoot) ---
 captureBtn.addEventListener("click", () => {
-  if (!video.srcObject) { galleryInput.click(); return; }
+  if (!cameraActive) {
+    // Triple-tap to activate
+    tapCount++;
+    clearTimeout(tapTimer);
+    tapTimer = setTimeout(() => { tapCount = 0; }, 600);
+    if (tapCount >= 3) {
+      tapCount = 0;
+      startCamera();
+    }
+    return;
+  }
+
+  // Camera is active — capture
+  fireFlash();
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   canvas.getContext("2d").drawImage(video, 0, 0);
-  canvas.toBlob(blob => { if (blob) sendImage(blob); }, "image/jpeg", 0.85);
+  canvas.toBlob(blob => {
+    if (!blob) return;
+    capturedBlob = blob;
+    // Show preview, stop camera
+    previewImg.src = URL.createObjectURL(blob);
+    previewImg.classList.add("visible");
+    stopCamera();
+    idleScreen.classList.add("hidden");
+    document.getElementById("controls").style.display = "none";
+    document.getElementById("preview-controls").classList.add("visible");
+  }, "image/jpeg", 0.85);
 });
 
+// Gallery
 galleryInput.addEventListener("change", (e) => {
   const file = e.target.files[0];
-  if (file) sendImage(file);
+  if (!file) return;
+  capturedBlob = file;
+  previewImg.src = URL.createObjectURL(file);
+  previewImg.classList.add("visible");
+  stopCamera();
+  idleScreen.classList.add("hidden");
+  document.getElementById("controls").style.display = "none";
+  document.getElementById("preview-controls").classList.add("visible");
   galleryInput.value = "";
 });
 
+// --- Preview: Send / Retake ---
+function retake() {
+  capturedBlob = null;
+  previewImg.classList.remove("visible");
+  previewImg.src = "";
+  document.getElementById("preview-controls").classList.remove("visible");
+  document.getElementById("controls").style.display = "flex";
+  idleScreen.classList.remove("hidden");
+}
+
+function sendCapture() {
+  if (!capturedBlob) return;
+  previewImg.classList.remove("visible");
+  document.getElementById("preview-controls").classList.remove("visible");
+  sendImage(capturedBlob);
+  capturedBlob = null;
+}
+
 // --- Send ---
 async function sendImage(blob) {
-  // Text box wins. If empty, use chip mode keyword.
   const userText = textInput.value.trim();
   const text = userText || activeMode;
   textInput.value = "";
   document.getElementById("controls").style.display = "none";
+  idleScreen.classList.add("hidden");
   showToast("Uploading...", 10);
 
   const form = new FormData();
@@ -407,7 +517,7 @@ async function sendImage(blob) {
     if (!res.ok) {
       const err = await res.json();
       showToast("Error: " + (err.error || res.statusText), 0);
-      setTimeout(() => { hideToast(); document.getElementById("controls").style.display = "flex"; }, 3000);
+      setTimeout(() => { hideToast(); document.getElementById("controls").style.display = "flex"; idleScreen.classList.remove("hidden"); }, 3000);
       return;
     }
     const { job_id } = await res.json();
@@ -415,35 +525,28 @@ async function sendImage(blob) {
     listenForUpdates(job_id);
   } catch (e) {
     showToast("Error: " + e.message, 0);
-    setTimeout(() => { hideToast(); document.getElementById("controls").style.display = "flex"; }, 3000);
+    setTimeout(() => { hideToast(); document.getElementById("controls").style.display = "flex"; idleScreen.classList.remove("hidden"); }, 3000);
   }
 }
 
-// --- SSE Updates ---
+// --- SSE ---
 function listenForUpdates(jobId) {
   const es = new EventSource("/api/status/" + jobId);
   es.onmessage = (e) => {
     const data = JSON.parse(e.data);
-    if (data.status === "processing") {
-      showToast("Processing (" + (data.mode || "") + ")...", 40);
-    } else if (data.status === "submitted") {
-      showToast("Generating...", 60);
-    } else if (data.status === "complete") {
-      es.close();
-      showToast("Done!", 100);
-      setTimeout(hideToast, 800);
-      showResult(data);
-      saveToHistory(data);
+    if (data.status === "processing") showToast("Processing (" + (data.mode || "") + ")...", 40);
+    else if (data.status === "submitted") showToast("Generating...", 60);
+    else if (data.status === "complete") {
+      es.close(); showToast("Done!", 100); setTimeout(hideToast, 800);
+      showResult(data); saveToHistory(data);
     } else if (data.status === "error") {
-      es.close();
-      showToast("Error: " + data.message, 0);
-      setTimeout(() => { hideToast(); document.getElementById("controls").style.display = "flex"; }, 4000);
+      es.close(); showToast("Error: " + data.message, 0);
+      setTimeout(() => { hideToast(); document.getElementById("controls").style.display = "flex"; idleScreen.classList.remove("hidden"); }, 4000);
     }
   };
   es.onerror = () => {
-    es.close();
-    showToast("Connection lost", 0);
-    setTimeout(() => { hideToast(); document.getElementById("controls").style.display = "flex"; }, 3000);
+    es.close(); showToast("Connection lost", 0);
+    setTimeout(() => { hideToast(); document.getElementById("controls").style.display = "flex"; idleScreen.classList.remove("hidden"); }, 3000);
   };
 }
 
@@ -483,25 +586,13 @@ function showResult(data) {
   document.getElementById("result-panel").classList.add("visible");
 }
 
-function closeResult() { closePanel("result"); }
-
 // --- History ---
-function getHistory() {
-  try { return JSON.parse(localStorage.getItem("camera_history") || "[]"); } catch { return []; }
-}
+function getHistory() { try { return JSON.parse(localStorage.getItem("camera_history") || "[]"); } catch { return []; } }
 function saveToHistory(data) {
   const history = getHistory();
-  const entry = {
-    timestamp: Date.now(),
-    type: data.type,
-    data: data
-  };
-  if (data.type === "ocr") {
-    entry.title = (data.parsed && data.parsed.todoist_title) || (data.parsed && data.parsed.summary) || "OCR Result";
-  } else {
-    entry.title = data.type.charAt(0).toUpperCase() + data.type.slice(1) + " Result";
-    entry.url = data.result_url;
-  }
+  const entry = { timestamp: Date.now(), type: data.type, data: data };
+  if (data.type === "ocr") entry.title = (data.parsed && data.parsed.todoist_title) || (data.parsed && data.parsed.summary) || "OCR Result";
+  else { entry.title = data.type.charAt(0).toUpperCase() + data.type.slice(1) + " Result"; entry.url = data.result_url; }
   history.unshift(entry);
   if (history.length > 10) history.pop();
   localStorage.setItem("camera_history", JSON.stringify(history));
@@ -509,35 +600,20 @@ function saveToHistory(data) {
 function renderHistory() {
   const history = getHistory();
   const list = document.getElementById("history-list");
-  if (!history.length) {
-    list.innerHTML = '<p style="color:rgba(255,255,255,0.4);text-align:center;padding:20px">No results yet</p>';
-    return;
-  }
+  if (!history.length) { list.innerHTML = '<p style="color:rgba(255,255,255,0.4);text-align:center;padding:20px">No results yet</p>'; return; }
   list.innerHTML = history.map((h, i) => {
-    const icons = { ocr: "&#x1F4CB;", video: "&#x1F3AC;", image: "&#x1F3A8;", cinema: "&#x1F3AC;" };
+    const icons = { ocr: "&#x1F4CB;", video: "&#x1F3AC;", image: "&#x1F3A8;" };
     const icon = icons[h.type] || "&#x1F4F7;";
-    const date = new Date(h.timestamp);
-    const timeStr = date.toLocaleDateString() + " " + date.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
-    return '<div class="history-item" onclick="showHistoryItem('+i+')">'
-      + '<div class="history-icon">'+icon+'</div>'
+    const d = new Date(h.timestamp);
+    const t = d.toLocaleDateString() + " " + d.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
+    return '<div class="history-item" onclick="showHistoryItem('+i+')"><div class="history-icon">'+icon+'</div>'
       + '<div class="history-info"><div class="history-title">'+esc(h.title)+'</div>'
-      + '<div class="history-meta">'+esc(h.type)+' &middot; '+esc(timeStr)+'</div></div></div>';
+      + '<div class="history-meta">'+esc(h.type)+' &middot; '+esc(t)+'</div></div></div>';
   }).join("");
 }
-function showHistoryItem(index) {
-  const history = getHistory();
-  if (history[index]) {
-    closePanel("history");
-    showResult(history[index].data);
-  }
-}
+function showHistoryItem(i) { const h = getHistory(); if (h[i]) { closePanel("history"); showResult(h[i].data); } }
 
-function esc(s) {
-  if (!s) return "";
-  const d = document.createElement("div");
-  d.textContent = s;
-  return d.innerHTML;
-}
+function esc(s) { if (!s) return ""; const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
 </script>
 </body>
 </html>
