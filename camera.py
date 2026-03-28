@@ -41,15 +41,19 @@ VIDEO_DURATIONS = {"short": 6, "default": 10, "long": 20}
 
 DRIVE_ROOT_FOLDER = "discord_bot"
 
-# Google Drive setup
-def get_drive_service():
+# Google API setup
+def _get_sa_creds(scopes):
     sa_info = json.loads(base64.b64decode(GOOGLE_SERVICE_ACCOUNT_B64))
-    creds = service_account.Credentials.from_service_account_info(
-        sa_info, scopes=["https://www.googleapis.com/auth/drive"]
-    )
-    return build("drive", "v3", credentials=creds)
+    return service_account.Credentials.from_service_account_info(sa_info, scopes=scopes)
 
-drive_service = get_drive_service()
+drive_service = build("drive", "v3", credentials=_get_sa_creds(
+    ["https://www.googleapis.com/auth/drive"]
+))
+calendar_service = build("calendar", "v3", credentials=_get_sa_creds(
+    ["https://www.googleapis.com/auth/calendar"]
+))
+
+CALENDAR_ID = GMAIL_RECIPIENT  # cwright.evans@gmail.com
 
 
 def share_with_owner(file_id):
@@ -122,6 +126,7 @@ async def get_fal_result(model, request_id):
 
 
 def parse_ocr_with_openai(ocr_text):
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     response = openai_client.chat.completions.create(
         model="gpt-4o-mini",
         response_format={"type": "json_object"},
@@ -130,6 +135,7 @@ def parse_ocr_with_openai(ocr_text):
                 "role": "system",
                 "content": (
                     "You extract structured information from OCR text. "
+                    f"Today's date is {today}. "
                     "Return JSON with these fields:\n"
                     '  "summary": "1 sentence summary",\n'
                     '  "who": "person or organization, or null",\n'
@@ -139,7 +145,12 @@ def parse_ocr_with_openai(ocr_text):
                     '  "why": "purpose or context, or null",\n'
                     '  "web_links": ["any URLs found in text"],\n'
                     '  "todoist_title": "short actionable title for a task",\n'
-                    '  "due_string": "natural language date for scheduling, or null"'
+                    '  "due_string": "natural language date for scheduling, or null",\n'
+                    '  "is_event": true if this describes a calendar event with a specific date/time,\n'
+                    '  "event_title": "short event title, or null",\n'
+                    '  "event_start": "ISO 8601 datetime like 2026-03-28T14:00:00, or null",\n'
+                    '  "event_end": "ISO 8601 datetime like 2026-03-28T15:00:00, or null (default 1 hour after start)",\n'
+                    '  "event_location": "location string, or null"'
                 ),
             },
             {"role": "user", "content": ocr_text},
@@ -168,6 +179,21 @@ def create_todoist_task(parsed):
     )
     resp.raise_for_status()
     return resp.json()
+
+
+def create_calendar_event(parsed):
+    """Create a Google Calendar event from parsed OCR data."""
+    event_body = {
+        "summary": parsed.get("event_title") or parsed.get("todoist_title"),
+        "description": parsed.get("summary", ""),
+        "start": {"dateTime": parsed["event_start"], "timeZone": "America/New_York"},
+        "end": {"dateTime": parsed["event_end"], "timeZone": "America/New_York"},
+    }
+    if parsed.get("event_location"):
+        event_body["location"] = parsed["event_location"]
+    event = calendar_service.events().insert(calendarId=CALENDAR_ID, body=event_body).execute()
+    print(f"Calendar event created: {event.get('htmlLink')}")
+    return event
 
 
 def send_email(subject, body_text, image_bytes, image_filename):
@@ -268,6 +294,17 @@ async def on_message(message):
                 executor, lambda: create_todoist_task(parsed)
             )
 
+            # Create calendar event if date/time detected
+            calendar_created = False
+            if parsed.get("is_event") and parsed.get("event_start"):
+                try:
+                    await asyncio.get_event_loop().run_in_executor(
+                        executor, lambda: create_calendar_event(parsed)
+                    )
+                    calendar_created = True
+                except Exception as e:
+                    print(f"Calendar event failed: {e}")
+
             # Build email body
             email_lines = [f"Summary: {parsed['summary']}", ""]
             for field in ["who", "what", "when", "where", "why"]:
@@ -299,9 +336,11 @@ async def on_message(message):
             # Discord response
             reply_parts = [
                 f"**Task created:** {parsed['todoist_title']}",
-                f"**Email sent** with full text + image",
-                f"\n**Summary:** {parsed['summary']}",
             ]
+            if calendar_created:
+                reply_parts.append(f"**Event added to calendar:** {parsed.get('event_title', parsed['todoist_title'])}")
+            reply_parts.append(f"**Email sent** with full text + image")
+            reply_parts.append(f"\n**Summary:** {parsed['summary']}")
             for field in ["who", "when", "where"]:
                 val = parsed.get(field)
                 if val:
