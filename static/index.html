@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="/static/manifest.json">
+<title>Camera</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #000; color: #fff; font-family: -apple-system, system-ui, sans-serif;
+  height: 100vh; height: 100dvh; overflow: hidden;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+#viewfinder {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  object-fit: cover; z-index: 0;
+}
+#fallback { display: none; }
+.controls {
+  position: absolute; bottom: 0; left: 0; right: 0; z-index: 10;
+  padding: 16px 20px calc(24px + env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, rgba(0,0,0,0.8));
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+}
+#text-input {
+  width: 100%; max-width: 360px; padding: 10px 16px;
+  background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3);
+  border-radius: 20px; color: #fff; font-size: 16px; outline: none;
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+#text-input::placeholder { color: rgba(255,255,255,0.5); }
+.btn-row { display: flex; align-items: center; gap: 20px; }
+#capture-btn {
+  width: 72px; height: 72px; border-radius: 50%;
+  background: #fff; border: 4px solid rgba(255,255,255,0.4);
+  cursor: pointer; transition: transform 0.1s;
+}
+#capture-btn:active { transform: scale(0.9); }
+#capture-btn:disabled { opacity: 0.4; }
+#gallery-btn {
+  width: 44px; height: 44px; border-radius: 10px;
+  background: rgba(255,255,255,0.2); border: none; color: #fff;
+  font-size: 20px; cursor: pointer;
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+.status-bar {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 20;
+  padding: calc(12px + env(safe-area-inset-top)) 20px 12px;
+  background: rgba(0,0,0,0.6); text-align: center; font-size: 14px;
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  display: none;
+}
+.status-bar.visible { display: block; }
+.result-panel {
+  position: absolute; bottom: 0; left: 0; right: 0; z-index: 30;
+  max-height: 80vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  background: rgba(20,20,20,0.95); border-radius: 20px 20px 0 0;
+  padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  display: none;
+}
+.result-panel.visible { display: block; }
+.result-panel .close-btn {
+  position: absolute; top: 12px; right: 16px;
+  background: rgba(255,255,255,0.2); border: none; color: #fff;
+  width: 32px; height: 32px; border-radius: 50%; font-size: 18px; cursor: pointer;
+}
+.result-panel img, .result-panel video {
+  width: 100%; border-radius: 12px; margin: 12px 0;
+}
+.result-panel h3 { font-size: 16px; margin-bottom: 8px; }
+.result-panel p { font-size: 14px; color: rgba(255,255,255,0.7); line-height: 1.5; margin: 4px 0; }
+.result-panel .tag {
+  display: inline-block; padding: 3px 10px; border-radius: 12px;
+  font-size: 12px; margin: 2px 4px 2px 0;
+}
+.tag.ok { background: rgba(52,199,89,0.3); color: #34c759; }
+.tag.fail { background: rgba(255,69,58,0.3); color: #ff453a; }
+canvas { display: none; }
+</style>
+</head>
+<body>
+<video id="viewfinder" autoplay playsinline muted></video>
+<canvas id="canvas"></canvas>
+
+<div id="status" class="status-bar"></div>
+
+<div class="controls" id="controls">
+  <input type="text" id="text-input" placeholder="ocr, cinema, video, or prompt..." autocomplete="off" autocorrect="off" spellcheck="false">
+  <div class="btn-row">
+    <label for="gallery-input">
+      <div id="gallery-btn">&#x1F5BC;</div>
+    </label>
+    <input type="file" id="gallery-input" accept="image/*" style="display:none">
+    <button id="capture-btn"></button>
+  </div>
+</div>
+
+<div id="result" class="result-panel">
+  <button class="close-btn" onclick="closeResult()">&times;</button>
+  <div id="result-content"></div>
+</div>
+
+<script>
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/static/sw.js");
+const API_TOKEN = localStorage.getItem("pwa_token") || "";
+const video = document.getElementById("viewfinder");
+const canvas = document.getElementById("canvas");
+const captureBtn = document.getElementById("capture-btn");
+const textInput = document.getElementById("text-input");
+const statusBar = document.getElementById("status");
+const resultPanel = document.getElementById("result");
+const resultContent = document.getElementById("result-content");
+const galleryInput = document.getElementById("gallery-input");
+
+// Token setup
+if (!API_TOKEN) {
+  const t = prompt("Enter your API token:");
+  if (t) { localStorage.setItem("pwa_token", t); location.reload(); }
+}
+
+// Camera
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
+      audio: false
+    });
+    video.srcObject = stream;
+  } catch (e) {
+    console.log("Camera not available, use gallery");
+  }
+}
+startCamera();
+
+// Capture from camera
+captureBtn.addEventListener("click", () => {
+  if (!video.srcObject) {
+    galleryInput.click();
+    return;
+  }
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext("2d").drawImage(video, 0, 0);
+  canvas.toBlob(blob => { if (blob) sendImage(blob); }, "image/jpeg", 0.85);
+});
+
+// Gallery pick
+galleryInput.addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (file) sendImage(file);
+  galleryInput.value = "";
+});
+
+function showStatus(msg) {
+  statusBar.textContent = msg;
+  statusBar.classList.add("visible");
+}
+function hideStatus() { statusBar.classList.remove("visible"); }
+
+function closeResult() {
+  resultPanel.classList.remove("visible");
+  document.getElementById("controls").style.display = "flex";
+}
+
+async function sendImage(blob) {
+  const text = textInput.value;
+  textInput.value = "";
+  document.getElementById("controls").style.display = "none";
+  showStatus("Uploading...");
+
+  const form = new FormData();
+  form.append("image", blob, "capture.jpg");
+  form.append("text", text);
+
+  try {
+    const res = await fetch("/api/process", {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + API_TOKEN },
+      body: form
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      showStatus("Error: " + (err.error || res.statusText));
+      setTimeout(() => { hideStatus(); document.getElementById("controls").style.display = "flex"; }, 3000);
+      return;
+    }
+    const { job_id } = await res.json();
+    listenForUpdates(job_id);
+  } catch (e) {
+    showStatus("Error: " + e.message);
+    setTimeout(() => { hideStatus(); document.getElementById("controls").style.display = "flex"; }, 3000);
+  }
+}
+
+function listenForUpdates(jobId) {
+  const es = new EventSource("/api/status/" + jobId);
+  es.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    if (data.status === "processing") {
+      showStatus("Processing (" + (data.mode || "") + ")...");
+    } else if (data.status === "submitted") {
+      showStatus("Generating...");
+    } else if (data.status === "complete") {
+      es.close();
+      hideStatus();
+      showResult(data);
+    } else if (data.status === "error") {
+      es.close();
+      showStatus("Error: " + data.message);
+      setTimeout(() => { hideStatus(); document.getElementById("controls").style.display = "flex"; }, 4000);
+    }
+  };
+  es.onerror = () => {
+    es.close();
+    showStatus("Connection lost");
+    setTimeout(() => { hideStatus(); document.getElementById("controls").style.display = "flex"; }, 3000);
+  };
+}
+
+function showResult(data) {
+  let html = "";
+  if (data.type === "ocr") {
+    const p = data.parsed || {};
+    html += "<h3>" + esc(p.summary || "") + "</h3>";
+    if (p.who) html += "<p><strong>Who:</strong> " + esc(p.who) + "</p>";
+    if (p.when) html += "<p><strong>When:</strong> " + esc(p.when) + "</p>";
+    if (p.where) html += "<p><strong>Where:</strong> " + esc(p.where) + "</p>";
+    if (p.what) html += "<p><strong>What:</strong> " + esc(p.what) + "</p>";
+    if (p.web_links && p.web_links.length) {
+      html += "<p><strong>Links:</strong></p>";
+      p.web_links.forEach(l => { html += '<p><a href="' + esc(l) + '" style="color:#0a84ff" target="_blank">' + esc(l) + '</a></p>'; });
+    }
+    html += '<div style="margin-top:10px">';
+    if (data.todoist) html += '<span class="tag ok">Todoist</span>';
+    else html += '<span class="tag fail">Todoist</span>';
+    if (data.calendar) html += '<span class="tag ok">Calendar</span>';
+    if (data.email) html += '<span class="tag ok">Email</span>';
+    else html += '<span class="tag fail">Email</span>';
+    if (data.drive) html += '<span class="tag ok">Drive</span>';
+    else html += '<span class="tag fail">Drive</span>';
+    html += "</div>";
+    if (p.full_text) {
+      html += '<details style="margin-top:12px"><summary style="color:rgba(255,255,255,0.5);font-size:13px;cursor:pointer">Full text</summary>';
+      html += '<p style="white-space:pre-wrap;margin-top:8px;font-size:13px">' + esc(p.full_text) + '</p></details>';
+    }
+  } else if (data.type === "video") {
+    html += '<video src="' + esc(data.result_url) + '" controls autoplay playsinline style="width:100%;border-radius:12px"></video>';
+    html += '<p style="margin-top:8px"><a href="' + esc(data.result_url) + '" style="color:#0a84ff" target="_blank">Download</a></p>';
+  } else if (data.type === "image") {
+    html += '<img src="' + esc(data.result_url) + '" style="width:100%;border-radius:12px">';
+    html += '<p style="margin-top:8px"><a href="' + esc(data.result_url) + '" style="color:#0a84ff" target="_blank">Download</a></p>';
+  }
+  resultContent.innerHTML = html;
+  resultPanel.classList.add("visible");
+}
+
+function esc(s) {
+  const d = document.createElement("div");
+  d.textContent = s;
+  return d.innerHTML;
+}
+</script>
+</body>
+</html>

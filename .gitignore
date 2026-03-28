@@ -1,2 +1,4 @@
 .env
 venv/
+client_secret*.json
+.claude/
