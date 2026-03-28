@@ -52,6 +52,15 @@ def get_drive_service():
 drive_service = get_drive_service()
 
 
+def share_with_owner(file_id):
+    """Share a Drive file/folder with the user's personal Gmail so it appears in their Drive."""
+    drive_service.permissions().create(
+        fileId=file_id,
+        body={"type": "user", "role": "writer", "emailAddress": GMAIL_RECIPIENT},
+    ).execute()
+    print(f"Shared {file_id} with {GMAIL_RECIPIENT}")
+
+
 def find_or_create_folder(name, parent_id=None):
     query = f"name='{name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
     if parent_id:
@@ -64,6 +73,9 @@ def find_or_create_folder(name, parent_id=None):
     if parent_id:
         metadata["parents"] = [parent_id]
     folder = drive_service.files().create(body=metadata, fields="id").execute()
+    # Share root folder with personal account so it shows up in their Drive
+    if not parent_id:
+        share_with_owner(folder["id"])
     return folder["id"]
 
 
