@@ -150,7 +150,7 @@ def create_todoist_task(parsed):
         body["due_string"] = parsed["due_string"]
 
     resp = requests.post(
-        "https://api.todoist.com/rest/v2/tasks",
+        "https://api.todoist.com/api/v1/tasks",
         headers={"Authorization": f"Bearer {TODOIST_API_TOKEN}", "Content-Type": "application/json"},
         json=body,
     )
