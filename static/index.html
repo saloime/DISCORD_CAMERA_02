@@ -9,30 +9,90 @@
 <link rel="manifest" href="/static/manifest.json">
 <title>Camera</title>
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 body {
   background: #000; color: #fff; font-family: -apple-system, system-ui, sans-serif;
   height: 100vh; height: 100dvh; overflow: hidden;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
+
+/* Camera */
 #viewfinder {
   position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-  object-fit: cover; z-index: 0;
+  object-fit: cover; z-index: 0; transform-origin: center center;
 }
-#fallback { display: none; }
+#zoom-indicator {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  background: rgba(0,0,0,0.6); color: #fff; padding: 6px 16px; border-radius: 16px;
+  font-size: 15px; font-weight: 600; z-index: 15; opacity: 0; transition: opacity 0.3s;
+  pointer-events: none;
+}
+#zoom-indicator.visible { opacity: 1; }
+
+/* Top bar */
+.top-bar {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 20;
+  padding: calc(8px + env(safe-area-inset-top)) 16px 8px;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.top-btn {
+  width: 36px; height: 36px; border-radius: 50%; border: none;
+  background: rgba(255,255,255,0.15); color: #fff; font-size: 16px;
+  cursor: pointer; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  display: flex; align-items: center; justify-content: center;
+}
+.top-left { display: flex; gap: 10px; }
+.top-right { display: flex; gap: 10px; }
+#flash-btn { display: none; }
+
+/* Toast notification */
+.toast {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 25;
+  padding: calc(12px + env(safe-area-inset-top)) 20px 14px;
+  background: rgba(30,30,30,0.9); text-align: center; font-size: 14px;
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  transform: translateY(-100%); transition: transform 0.3s ease;
+}
+.toast.visible { transform: translateY(0); }
+.toast-text { margin-bottom: 6px; }
+.toast-progress {
+  height: 3px; background: rgba(255,255,255,0.15); border-radius: 2px; overflow: hidden;
+}
+.toast-progress-bar {
+  height: 100%; background: #0a84ff; border-radius: 2px;
+  transition: width 0.5s ease;
+}
+
+/* Controls */
 .controls {
   position: absolute; bottom: 0; left: 0; right: 0; z-index: 10;
-  padding: 16px 20px calc(24px + env(safe-area-inset-bottom));
-  background: linear-gradient(transparent, rgba(0,0,0,0.8));
-  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  padding: 12px 16px calc(20px + env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, rgba(0,0,0,0.85));
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+.mode-chips {
+  display: flex; gap: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch;
+  max-width: 100%; padding: 0 4px;
+}
+.mode-chips::-webkit-scrollbar { display: none; }
+.chip {
+  padding: 6px 16px; border-radius: 18px; font-size: 13px; font-weight: 500;
+  white-space: nowrap; cursor: pointer; border: 1px solid rgba(255,255,255,0.25);
+  background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.7);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  transition: all 0.2s;
+}
+.chip.active {
+  background: rgba(255,255,255,0.25); color: #fff;
+  border-color: rgba(255,255,255,0.5);
 }
 #text-input {
   width: 100%; max-width: 360px; padding: 10px 16px;
-  background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3);
+  background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2);
   border-radius: 20px; color: #fff; font-size: 16px; outline: none;
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
 }
-#text-input::placeholder { color: rgba(255,255,255,0.5); }
+#text-input::placeholder { color: rgba(255,255,255,0.4); }
 .btn-row { display: flex; align-items: center; gap: 20px; }
 #capture-btn {
   width: 72px; height: 72px; border-radius: 50%;
@@ -43,87 +103,163 @@ body {
 #capture-btn:disabled { opacity: 0.4; }
 #gallery-btn {
   width: 44px; height: 44px; border-radius: 10px;
-  background: rgba(255,255,255,0.2); border: none; color: #fff;
-  font-size: 20px; cursor: pointer;
+  background: rgba(255,255,255,0.15); border: none; color: #fff;
+  font-size: 18px; cursor: pointer;
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
 }
-.status-bar {
-  position: absolute; top: 0; left: 0; right: 0; z-index: 20;
-  padding: calc(12px + env(safe-area-inset-top)) 20px 12px;
-  background: rgba(0,0,0,0.6); text-align: center; font-size: 14px;
-  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-  display: none;
-}
-.status-bar.visible { display: block; }
-.result-panel {
+
+/* Panels */
+.panel {
   position: absolute; bottom: 0; left: 0; right: 0; z-index: 30;
-  max-height: 80vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  max-height: 85vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
   background: rgba(20,20,20,0.95); border-radius: 20px 20px 0 0;
   padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
   backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-  display: none;
+  transform: translateY(100%); transition: transform 0.3s ease;
 }
-.result-panel.visible { display: block; }
-.result-panel .close-btn {
-  position: absolute; top: 12px; right: 16px;
-  background: rgba(255,255,255,0.2); border: none; color: #fff;
+.panel.visible { transform: translateY(0); }
+.panel .close-btn {
+  position: sticky; top: 0; float: right;
+  background: rgba(255,255,255,0.15); border: none; color: #fff;
   width: 32px; height: 32px; border-radius: 50%; font-size: 18px; cursor: pointer;
+  z-index: 1;
 }
-.result-panel img, .result-panel video {
-  width: 100%; border-radius: 12px; margin: 12px 0;
-}
-.result-panel h3 { font-size: 16px; margin-bottom: 8px; }
-.result-panel p { font-size: 14px; color: rgba(255,255,255,0.7); line-height: 1.5; margin: 4px 0; }
-.result-panel .tag {
-  display: inline-block; padding: 3px 10px; border-radius: 12px;
-  font-size: 12px; margin: 2px 4px 2px 0;
-}
+.panel img, .panel video { width: 100%; border-radius: 12px; margin: 12px 0; }
+.panel h3 { font-size: 16px; margin-bottom: 8px; }
+.panel p { font-size: 14px; color: rgba(255,255,255,0.7); line-height: 1.5; margin: 4px 0; }
+.tag { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 12px; margin: 2px 4px 2px 0; }
 .tag.ok { background: rgba(52,199,89,0.3); color: #34c759; }
 .tag.fail { background: rgba(255,69,58,0.3); color: #ff453a; }
+
+/* Help panel */
+.help-section { margin-bottom: 16px; }
+.help-section h4 { font-size: 14px; color: #0a84ff; margin-bottom: 6px; }
+.help-section p { font-size: 13px; color: rgba(255,255,255,0.6); line-height: 1.6; }
+.help-row { display: flex; gap: 8px; margin: 4px 0; }
+.help-label { font-weight: 600; color: rgba(255,255,255,0.85); min-width: 70px; font-size: 13px; }
+.help-desc { color: rgba(255,255,255,0.55); font-size: 13px; }
+
+/* History */
+.history-item {
+  display: flex; align-items: center; gap: 12px; padding: 12px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.08); cursor: pointer;
+}
+.history-item:last-child { border-bottom: none; }
+.history-icon {
+  width: 40px; height: 40px; border-radius: 10px; background: rgba(255,255,255,0.1);
+  display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;
+}
+.history-info { flex: 1; min-width: 0; }
+.history-title { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.history-meta { font-size: 12px; color: rgba(255,255,255,0.4); margin-top: 2px; }
+
 canvas { display: none; }
 </style>
 </head>
 <body>
 <video id="viewfinder" autoplay playsinline muted></video>
 <canvas id="canvas"></canvas>
+<div id="zoom-indicator">1.0x</div>
 
-<div id="status" class="status-bar"></div>
+<!-- Top bar -->
+<div class="top-bar">
+  <div class="top-left">
+    <button class="top-btn" id="help-btn" onclick="togglePanel('help')">?</button>
+    <button class="top-btn" id="history-btn" onclick="togglePanel('history')">&#x1F553;</button>
+  </div>
+  <div class="top-right">
+    <button class="top-btn" id="flash-btn" onclick="toggleFlash()">&#x26A1;</button>
+  </div>
+</div>
 
+<!-- Toast -->
+<div class="toast" id="toast">
+  <div class="toast-text" id="toast-text"></div>
+  <div class="toast-progress"><div class="toast-progress-bar" id="toast-progress"></div></div>
+</div>
+
+<!-- Controls -->
 <div class="controls" id="controls">
-  <input type="text" id="text-input" placeholder="ocr, cinema, video, or prompt..." autocomplete="off" autocorrect="off" spellcheck="false">
+  <div class="mode-chips" id="mode-chips">
+    <div class="chip active" data-mode="" data-label="Simpsons">Simpsons</div>
+    <div class="chip" data-mode="ocr" data-label="OCR">OCR</div>
+    <div class="chip" data-mode="video" data-label="Video">Video</div>
+    <div class="chip" data-mode="cinema" data-label="Cinema">Cinema</div>
+  </div>
+  <input type="text" id="text-input" placeholder="type a prompt or leave blank..." autocomplete="off" autocorrect="off" spellcheck="false">
   <div class="btn-row">
-    <label for="gallery-input">
-      <div id="gallery-btn">&#x1F5BC;</div>
-    </label>
+    <label for="gallery-input"><div id="gallery-btn">&#x1F5BC;</div></label>
     <input type="file" id="gallery-input" accept="image/*" style="display:none">
     <button id="capture-btn"></button>
   </div>
 </div>
 
-<div id="result" class="result-panel">
-  <button class="close-btn" onclick="closeResult()">&times;</button>
+<!-- Result panel -->
+<div class="panel" id="result-panel">
+  <button class="close-btn" onclick="closePanel('result')">&times;</button>
   <div id="result-content"></div>
+</div>
+
+<!-- Help panel -->
+<div class="panel" id="help-panel">
+  <button class="close-btn" onclick="closePanel('help')">&times;</button>
+  <h3 style="margin-bottom:16px">How to Use</h3>
+  <div class="help-section">
+    <h4>Modes</h4>
+    <div class="help-row"><span class="help-label">Simpsons</span><span class="help-desc">Default. Turns your photo into a Simpsons cartoon.</span></div>
+    <div class="help-row"><span class="help-label">OCR</span><span class="help-desc">Reads text from image. Creates a Todoist task, sends email, adds calendar event if a date is found.</span></div>
+    <div class="help-row"><span class="help-label">Video</span><span class="help-desc">Fast 1080p video from your image (LTX). 10s default.</span></div>
+    <div class="help-row"><span class="help-label">Cinema</span><span class="help-desc">Cinematic video from your image (Kling v3). 10s default.</span></div>
+  </div>
+  <div class="help-section">
+    <h4>Duration Modifiers</h4>
+    <div class="help-row"><span class="help-label">short</span><span class="help-desc">Shortest: video 6s, cinema 5s</span></div>
+    <div class="help-row"><span class="help-label">long</span><span class="help-desc">Longest: video 20s, cinema 30s</span></div>
+    <p style="margin-top:6px">Type "long cinema" or "short video" in the text box.</p>
+  </div>
+  <div class="help-section">
+    <h4>Custom Prompts</h4>
+    <p>Type anything in the text box to override the default prompt. For video/cinema, type the keyword + your prompt (e.g. "cinema slow dolly zoom").</p>
+  </div>
+  <div class="help-section">
+    <h4>Tips</h4>
+    <p>Text box always wins over mode buttons. Pinch to zoom. Tap the flash icon for torch. Results are saved to history.</p>
+  </div>
+</div>
+
+<!-- History panel -->
+<div class="panel" id="history-panel">
+  <button class="close-btn" onclick="closePanel('history')">&times;</button>
+  <h3 style="margin-bottom:16px">Recent Results</h3>
+  <div id="history-list"></div>
 </div>
 
 <script>
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/static/sw.js");
+
 const API_TOKEN = localStorage.getItem("pwa_token") || "";
 const video = document.getElementById("viewfinder");
 const canvas = document.getElementById("canvas");
 const captureBtn = document.getElementById("capture-btn");
 const textInput = document.getElementById("text-input");
-const statusBar = document.getElementById("status");
-const resultPanel = document.getElementById("result");
-const resultContent = document.getElementById("result-content");
 const galleryInput = document.getElementById("gallery-input");
+const toast = document.getElementById("toast");
+const toastText = document.getElementById("toast-text");
+const toastProgress = document.getElementById("toast-progress");
 
-// Token setup
+let activeMode = "";
+let currentStream = null;
+let flashOn = false;
+let zoomLevel = 1;
+let zoomTimer = null;
+
+// --- Token setup ---
 if (!API_TOKEN) {
   const t = prompt("Enter your API token:");
   if (t) { localStorage.setItem("pwa_token", t); location.reload(); }
 }
 
-// Camera
+// --- Camera ---
 async function startCamera() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -131,47 +267,132 @@ async function startCamera() {
       audio: false
     });
     video.srcObject = stream;
+    currentStream = stream;
+    checkFlashSupport();
   } catch (e) {
     console.log("Camera not available, use gallery");
   }
 }
 startCamera();
 
-// Capture from camera
-captureBtn.addEventListener("click", () => {
-  if (!video.srcObject) {
-    galleryInput.click();
-    return;
+// --- Flash ---
+function checkFlashSupport() {
+  const track = currentStream && currentStream.getVideoTracks()[0];
+  if (track) {
+    const caps = track.getCapabilities ? track.getCapabilities() : {};
+    if (caps.torch) {
+      document.getElementById("flash-btn").style.display = "flex";
+    }
   }
+}
+function toggleFlash() {
+  const track = currentStream && currentStream.getVideoTracks()[0];
+  if (!track) return;
+  flashOn = !flashOn;
+  track.applyConstraints({ advanced: [{ torch: flashOn }] }).catch(() => {});
+  document.getElementById("flash-btn").style.background = flashOn ? "rgba(255,204,0,0.4)" : "rgba(255,255,255,0.15)";
+}
+
+// --- Pinch to Zoom ---
+let pinchStartDist = 0;
+let pinchStartZoom = 1;
+
+video.addEventListener("touchstart", (e) => {
+  if (e.touches.length === 2) {
+    pinchStartDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    pinchStartZoom = zoomLevel;
+  }
+}, { passive: true });
+
+video.addEventListener("touchmove", (e) => {
+  if (e.touches.length === 2) {
+    const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    const scale = dist / pinchStartDist;
+    zoomLevel = Math.max(1, Math.min(5, pinchStartZoom * scale));
+    applyZoom();
+  }
+}, { passive: true });
+
+function applyZoom() {
+  const track = currentStream && currentStream.getVideoTracks()[0];
+  const caps = track ? (track.getCapabilities ? track.getCapabilities() : {}) : {};
+  if (caps.zoom) {
+    const maxZoom = caps.zoom.max || 5;
+    const clampedZoom = Math.min(zoomLevel, maxZoom);
+    track.applyConstraints({ advanced: [{ zoom: clampedZoom }] }).catch(() => {});
+  } else {
+    video.style.transform = "scale(" + zoomLevel + ")";
+  }
+  const zi = document.getElementById("zoom-indicator");
+  zi.textContent = zoomLevel.toFixed(1) + "x";
+  zi.classList.add("visible");
+  clearTimeout(zoomTimer);
+  zoomTimer = setTimeout(() => zi.classList.remove("visible"), 1200);
+}
+
+// --- Mode Chips ---
+document.querySelectorAll(".chip").forEach(chip => {
+  chip.addEventListener("click", () => {
+    document.querySelectorAll(".chip").forEach(c => c.classList.remove("active"));
+    chip.classList.add("active");
+    activeMode = chip.dataset.mode;
+  });
+});
+
+// --- Toast Notifications ---
+let toastHideTimer = null;
+function showToast(msg, progress) {
+  toastText.textContent = msg;
+  toastProgress.style.width = (progress || 0) + "%";
+  toast.classList.add("visible");
+  clearTimeout(toastHideTimer);
+}
+function hideToast() {
+  toast.classList.remove("visible");
+}
+
+// --- Panels ---
+function togglePanel(name) {
+  const panel = document.getElementById(name + "-panel");
+  if (panel.classList.contains("visible")) {
+    closePanel(name);
+  } else {
+    closeAllPanels();
+    if (name === "history") renderHistory();
+    panel.classList.add("visible");
+  }
+}
+function closePanel(name) {
+  document.getElementById(name + "-panel").classList.remove("visible");
+  document.getElementById("controls").style.display = "flex";
+}
+function closeAllPanels() {
+  document.querySelectorAll(".panel").forEach(p => p.classList.remove("visible"));
+}
+
+// --- Capture ---
+captureBtn.addEventListener("click", () => {
+  if (!video.srcObject) { galleryInput.click(); return; }
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   canvas.getContext("2d").drawImage(video, 0, 0);
   canvas.toBlob(blob => { if (blob) sendImage(blob); }, "image/jpeg", 0.85);
 });
 
-// Gallery pick
 galleryInput.addEventListener("change", (e) => {
   const file = e.target.files[0];
   if (file) sendImage(file);
   galleryInput.value = "";
 });
 
-function showStatus(msg) {
-  statusBar.textContent = msg;
-  statusBar.classList.add("visible");
-}
-function hideStatus() { statusBar.classList.remove("visible"); }
-
-function closeResult() {
-  resultPanel.classList.remove("visible");
-  document.getElementById("controls").style.display = "flex";
-}
-
+// --- Send ---
 async function sendImage(blob) {
-  const text = textInput.value;
+  // Text box wins. If empty, use chip mode keyword.
+  const userText = textInput.value.trim();
+  const text = userText || activeMode;
   textInput.value = "";
   document.getElementById("controls").style.display = "none";
-  showStatus("Uploading...");
+  showToast("Uploading...", 10);
 
   const form = new FormData();
   form.append("image", blob, "capture.jpg");
@@ -185,43 +406,48 @@ async function sendImage(blob) {
     });
     if (!res.ok) {
       const err = await res.json();
-      showStatus("Error: " + (err.error || res.statusText));
-      setTimeout(() => { hideStatus(); document.getElementById("controls").style.display = "flex"; }, 3000);
+      showToast("Error: " + (err.error || res.statusText), 0);
+      setTimeout(() => { hideToast(); document.getElementById("controls").style.display = "flex"; }, 3000);
       return;
     }
     const { job_id } = await res.json();
+    showToast("Processing...", 30);
     listenForUpdates(job_id);
   } catch (e) {
-    showStatus("Error: " + e.message);
-    setTimeout(() => { hideStatus(); document.getElementById("controls").style.display = "flex"; }, 3000);
+    showToast("Error: " + e.message, 0);
+    setTimeout(() => { hideToast(); document.getElementById("controls").style.display = "flex"; }, 3000);
   }
 }
 
+// --- SSE Updates ---
 function listenForUpdates(jobId) {
   const es = new EventSource("/api/status/" + jobId);
   es.onmessage = (e) => {
     const data = JSON.parse(e.data);
     if (data.status === "processing") {
-      showStatus("Processing (" + (data.mode || "") + ")...");
+      showToast("Processing (" + (data.mode || "") + ")...", 40);
     } else if (data.status === "submitted") {
-      showStatus("Generating...");
+      showToast("Generating...", 60);
     } else if (data.status === "complete") {
       es.close();
-      hideStatus();
+      showToast("Done!", 100);
+      setTimeout(hideToast, 800);
       showResult(data);
+      saveToHistory(data);
     } else if (data.status === "error") {
       es.close();
-      showStatus("Error: " + data.message);
-      setTimeout(() => { hideStatus(); document.getElementById("controls").style.display = "flex"; }, 4000);
+      showToast("Error: " + data.message, 0);
+      setTimeout(() => { hideToast(); document.getElementById("controls").style.display = "flex"; }, 4000);
     }
   };
   es.onerror = () => {
     es.close();
-    showStatus("Connection lost");
-    setTimeout(() => { hideStatus(); document.getElementById("controls").style.display = "flex"; }, 3000);
+    showToast("Connection lost", 0);
+    setTimeout(() => { hideToast(); document.getElementById("controls").style.display = "flex"; }, 3000);
   };
 }
 
+// --- Results ---
 function showResult(data) {
   let html = "";
   if (data.type === "ocr") {
@@ -233,33 +459,81 @@ function showResult(data) {
     if (p.what) html += "<p><strong>What:</strong> " + esc(p.what) + "</p>";
     if (p.web_links && p.web_links.length) {
       html += "<p><strong>Links:</strong></p>";
-      p.web_links.forEach(l => { html += '<p><a href="' + esc(l) + '" style="color:#0a84ff" target="_blank">' + esc(l) + '</a></p>'; });
+      p.web_links.forEach(l => { html += '<p><a href="'+esc(l)+'" style="color:#0a84ff" target="_blank">'+esc(l)+'</a></p>'; });
     }
     html += '<div style="margin-top:10px">';
-    if (data.todoist) html += '<span class="tag ok">Todoist</span>';
-    else html += '<span class="tag fail">Todoist</span>';
+    html += data.todoist ? '<span class="tag ok">Todoist</span>' : '<span class="tag fail">Todoist</span>';
     if (data.calendar) html += '<span class="tag ok">Calendar</span>';
-    if (data.email) html += '<span class="tag ok">Email</span>';
-    else html += '<span class="tag fail">Email</span>';
-    if (data.drive) html += '<span class="tag ok">Drive</span>';
-    else html += '<span class="tag fail">Drive</span>';
+    html += data.email ? '<span class="tag ok">Email</span>' : '<span class="tag fail">Email</span>';
+    html += data.drive ? '<span class="tag ok">Drive</span>' : '<span class="tag fail">Drive</span>';
     html += "</div>";
     if (p.full_text) {
       html += '<details style="margin-top:12px"><summary style="color:rgba(255,255,255,0.5);font-size:13px;cursor:pointer">Full text</summary>';
-      html += '<p style="white-space:pre-wrap;margin-top:8px;font-size:13px">' + esc(p.full_text) + '</p></details>';
+      html += '<p style="white-space:pre-wrap;margin-top:8px;font-size:13px">'+esc(p.full_text)+'</p></details>';
     }
   } else if (data.type === "video") {
-    html += '<video src="' + esc(data.result_url) + '" controls autoplay playsinline style="width:100%;border-radius:12px"></video>';
-    html += '<p style="margin-top:8px"><a href="' + esc(data.result_url) + '" style="color:#0a84ff" target="_blank">Download</a></p>';
+    html += '<video src="'+esc(data.result_url)+'" controls autoplay playsinline style="width:100%;border-radius:12px"></video>';
+    html += '<p style="margin-top:8px"><a href="'+esc(data.result_url)+'" style="color:#0a84ff" target="_blank">Download</a></p>';
   } else if (data.type === "image") {
-    html += '<img src="' + esc(data.result_url) + '" style="width:100%;border-radius:12px">';
-    html += '<p style="margin-top:8px"><a href="' + esc(data.result_url) + '" style="color:#0a84ff" target="_blank">Download</a></p>';
+    html += '<img src="'+esc(data.result_url)+'" style="width:100%;border-radius:12px">';
+    html += '<p style="margin-top:8px"><a href="'+esc(data.result_url)+'" style="color:#0a84ff" target="_blank">Download</a></p>';
   }
-  resultContent.innerHTML = html;
-  resultPanel.classList.add("visible");
+  document.getElementById("result-content").innerHTML = html;
+  closeAllPanels();
+  document.getElementById("result-panel").classList.add("visible");
+}
+
+function closeResult() { closePanel("result"); }
+
+// --- History ---
+function getHistory() {
+  try { return JSON.parse(localStorage.getItem("camera_history") || "[]"); } catch { return []; }
+}
+function saveToHistory(data) {
+  const history = getHistory();
+  const entry = {
+    timestamp: Date.now(),
+    type: data.type,
+    data: data
+  };
+  if (data.type === "ocr") {
+    entry.title = (data.parsed && data.parsed.todoist_title) || (data.parsed && data.parsed.summary) || "OCR Result";
+  } else {
+    entry.title = data.type.charAt(0).toUpperCase() + data.type.slice(1) + " Result";
+    entry.url = data.result_url;
+  }
+  history.unshift(entry);
+  if (history.length > 10) history.pop();
+  localStorage.setItem("camera_history", JSON.stringify(history));
+}
+function renderHistory() {
+  const history = getHistory();
+  const list = document.getElementById("history-list");
+  if (!history.length) {
+    list.innerHTML = '<p style="color:rgba(255,255,255,0.4);text-align:center;padding:20px">No results yet</p>';
+    return;
+  }
+  list.innerHTML = history.map((h, i) => {
+    const icons = { ocr: "&#x1F4CB;", video: "&#x1F3AC;", image: "&#x1F3A8;", cinema: "&#x1F3AC;" };
+    const icon = icons[h.type] || "&#x1F4F7;";
+    const date = new Date(h.timestamp);
+    const timeStr = date.toLocaleDateString() + " " + date.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
+    return '<div class="history-item" onclick="showHistoryItem('+i+')">'
+      + '<div class="history-icon">'+icon+'</div>'
+      + '<div class="history-info"><div class="history-title">'+esc(h.title)+'</div>'
+      + '<div class="history-meta">'+esc(h.type)+' &middot; '+esc(timeStr)+'</div></div></div>';
+  }).join("");
+}
+function showHistoryItem(index) {
+  const history = getHistory();
+  if (history[index]) {
+    closePanel("history");
+    showResult(history[index].data);
+  }
 }
 
 function esc(s) {
+  if (!s) return "";
   const d = document.createElement("div");
   d.textContent = s;
   return d.innerHTML;
