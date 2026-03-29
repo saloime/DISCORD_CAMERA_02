@@ -507,28 +507,61 @@ def api_process():
 
     job_id = uuid.uuid4().hex
     q = Queue()
-    jobs[job_id] = {"events": q, "created": datetime.now(timezone.utc)}
+    job_record = {"events": q, "event_log": [], "done": False, "created": datetime.now(timezone.utc)}
+    jobs[job_id] = job_record
 
     image_bytes = image.read()
     filename = image.filename or "capture.jpg"
 
-    threading.Thread(target=process_job, args=(image_bytes, text, filename, q), daemon=True).start()
+    def run_and_log():
+        process_job(image_bytes, text, filename, q)
+        # Drain queue into event_log so late-connecting SSE can read
+        while not q.empty():
+            evt = q.get_nowait()
+            job_record["event_log"].append(evt)
+            if evt["status"] in ("complete", "error"):
+                job_record["done"] = True
+
+    threading.Thread(target=run_and_log, daemon=True).start()
 
     return jsonify({"job_id": job_id})
 
 
 @app.route("/api/status/<job_id>")
 def job_status(job_id):
+    import time
+
     def stream():
         job = jobs.get(job_id)
         if not job:
             yield f"data: {json.dumps({'status': 'error', 'message': 'not found'})}\n\n"
             return
-        while True:
-            event = job["events"].get(timeout=300)
-            yield f"data: {json.dumps(event)}\n\n"
-            if event["status"] in ("complete", "error"):
-                break
+
+        # First replay any events already logged (for late-connecting clients)
+        sent = 0
+        for evt in job["event_log"]:
+            yield f"data: {json.dumps(evt)}\n\n"
+            sent += 1
+            if evt["status"] in ("complete", "error"):
+                jobs.pop(job_id, None)
+                return
+
+        # Then wait for new events
+        deadline = time.time() + 300
+        while time.time() < deadline:
+            try:
+                event = job["events"].get(timeout=2)
+                job["event_log"].append(event)
+                yield f"data: {json.dumps(event)}\n\n"
+                if event["status"] in ("complete", "error"):
+                    break
+            except Exception:
+                # Check if job finished while we weren't listening
+                if job.get("done"):
+                    for evt in job["event_log"][sent:]:
+                        yield f"data: {json.dumps(evt)}\n\n"
+                    break
+                continue
         jobs.pop(job_id, None)
 
     return Response(stream(), mimetype="text/event-stream",
