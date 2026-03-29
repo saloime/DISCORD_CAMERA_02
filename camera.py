@@ -37,6 +37,7 @@ GOOGLE_CLIENT_ID_DISCORD_BOT = os.getenv("GOOGLE_CLIENT_ID_DISCORD_BOT")
 GOOGLE_CLIENT_SECRET_DISCORD_BOT = os.getenv("GOOGLE_CLIENT_SECRET_DISCORD_BOT")
 GOOGLE_REFRESH_TOKEN_DISCORD_BOT = os.getenv("GOOGLE_REFRESH_TOKEN_DISCORD_BOT")
 PWA_API_TOKEN = os.getenv("PWA_API_TOKEN")
+SMS_GATEWAY = os.getenv("SMS_GATEWAY") or os.getenv("PHONE")
 
 IMAGE_MODEL = "fal-ai/flux-pro/kontext/max"
 CINEMA_MODEL = "fal-ai/kling-video/v3/pro/image-to-video"
@@ -134,7 +135,7 @@ def parse_image_with_openai(image_url):
                 "role": "system",
                 "content": (
                     "You read and extract ALL text and structured information from images. "
-                    "This may be a photo of a screen, a document, a flyer, a sign, etc. "
+                    "This may be a photo of a screen, document, flyer, sign, or handwritten note. "
                     f"Today's date is {today}. "
                     "Return JSON with these fields:\n"
                     '  "full_text": "all text visible in the image, transcribed faithfully",\n'
@@ -145,8 +146,10 @@ def parse_image_with_openai(image_url):
                     '  "where": "location if found, or null",\n'
                     '  "why": "purpose or context, or null",\n'
                     '  "web_links": ["any URLs visible in the image"],\n'
-                    '  "todoist_title": "short actionable title for a task",\n'
-                    '  "due_string": "natural language date for scheduling, or null",\n'
+                    '  "tasks": [{"title": "task title", "due_string": "natural language date or null"}] '
+                    "— if the image contains a list of items (like a todo list, shopping list, checklist), "
+                    "return EACH item as a separate task. If it is a single item or event, return one task. "
+                    "Always return at least one task.\n"
                     '  "is_event": true if this describes a calendar event with a specific date/time,\n'
                     '  "event_title": "short event title, or null",\n'
                     '  "event_start": "ISO 8601 datetime like 2026-03-28T14:00:00, or null",\n'
@@ -166,29 +169,43 @@ def parse_image_with_openai(image_url):
     return json.loads(response.choices[0].message.content)
 
 
-def create_todoist_task(parsed):
-    description_parts = [f"Summary: {parsed['summary']}"]
+def create_todoist_tasks(parsed):
+    """Create one or more Todoist tasks from parsed data. Returns count created."""
+    tasks = parsed.get("tasks", [])
+    if not tasks:
+        # Fallback to old single-task format
+        tasks = [{"title": parsed.get("todoist_title", "Untitled"), "due_string": parsed.get("due_string")}]
+
+    shared_desc_parts = [f"Summary: {parsed.get('summary', '')}"]
     for field in ["who", "what", "when", "where", "why"]:
         val = parsed.get(field)
         if val:
-            description_parts.append(f"{field.capitalize()}: {val}")
+            shared_desc_parts.append(f"{field.capitalize()}: {val}")
     if parsed.get("web_links"):
-        description_parts.append("Links: " + ", ".join(parsed["web_links"]))
-    body = {"content": parsed["todoist_title"], "description": "\n".join(description_parts)}
-    if parsed.get("due_string"):
-        body["due_string"] = parsed["due_string"]
-    resp = requests.post(
-        "https://api.todoist.com/api/v1/tasks",
-        headers={"Authorization": f"Bearer {TODOIST_API_TOKEN}", "Content-Type": "application/json"},
-        json=body,
-    )
-    resp.raise_for_status()
-    return resp.json()
+        shared_desc_parts.append("Links: " + ", ".join(parsed["web_links"]))
+    shared_desc = "\n".join(shared_desc_parts)
+
+    created = 0
+    for task in tasks:
+        body = {"content": task.get("title", "Untitled"), "description": shared_desc}
+        if task.get("due_string"):
+            body["due_string"] = task["due_string"]
+        try:
+            resp = requests.post(
+                "https://api.todoist.com/api/v1/tasks",
+                headers={"Authorization": f"Bearer {TODOIST_API_TOKEN}", "Content-Type": "application/json"},
+                json=body,
+            )
+            resp.raise_for_status()
+            created += 1
+        except Exception as e:
+            print(f"Todoist task failed ({task.get('title')}): {e}")
+    return created
 
 
 def create_calendar_event(parsed):
     event_body = {
-        "summary": parsed.get("event_title") or parsed.get("todoist_title"),
+        "summary": parsed.get("event_title") or parsed.get("tasks", [{}])[0].get("title", "Event"),
         "description": parsed.get("summary", ""),
         "start": {"dateTime": parsed["event_start"], "timeZone": "America/New_York"},
         "end": {"dateTime": parsed["event_end"], "timeZone": "America/New_York"},
@@ -214,6 +231,20 @@ def send_email(subject, body_text, image_bytes, image_filename):
         server.send_message(msg)
 
 
+def send_sms(message):
+    """Send a short text via AT&T email-to-SMS gateway."""
+    if not SMS_GATEWAY:
+        return
+    msg = MIMEText(message[:160])
+    msg["From"] = GMAIL_SENDER
+    msg["To"] = SMS_GATEWAY
+    msg["Subject"] = ""
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        server.login(GMAIL_SENDER, GMAIL_SMTP_PASSWORD)
+        server.send_message(msg)
+    print(f"SMS sent: {message[:60]}...")
+
+
 def process_job(image_bytes, user_text, image_filename, events_queue):
     """Core processing function used by both Discord and PWA. Pushes status events to queue."""
     mode, modifier, prompt_text = parse_user_input(user_text)
@@ -225,18 +256,19 @@ def process_job(image_bytes, user_text, image_filename, events_queue):
 
     try:
         if mode == "ocr":
-            # Upload to fal for Drive backup, use Discord/direct URL for vision
             fal_upload_url = fal_client.upload_file(temp_path)
             parsed = parse_image_with_openai(fal_upload_url)
             ocr_text = parsed.get("full_text", "")
             results = {"type": "ocr", "parsed": parsed}
 
-            # Todoist
+            # Todoist (multiple tasks)
             try:
-                create_todoist_task(parsed)
+                count = create_todoist_tasks(parsed)
                 results["todoist"] = True
+                results["task_count"] = count
             except Exception as e:
                 results["todoist"] = False
+                results["task_count"] = 0
                 print(f"Todoist failed: {e}")
 
             # Calendar
@@ -261,7 +293,7 @@ def process_job(image_bytes, user_text, image_filename, events_queue):
                         email_lines.append(f"  {link}")
                 email_lines.append(f"\n--- Full Text ---\n{ocr_text}")
                 send_email(
-                    f"OCR Capture: {parsed['todoist_title']}",
+                    f"OCR Capture: {parsed.get('summary', '')[:50]}",
                     "\n".join(email_lines),
                     image_bytes,
                     image_filename,
@@ -278,6 +310,14 @@ def process_job(image_bytes, user_text, image_filename, events_queue):
             except Exception as e:
                 results["drive"] = False
                 print(f"Drive failed: {e}")
+
+            # SMS notification
+            try:
+                task_count = results.get("task_count", 0)
+                summary = parsed.get("summary", "")[:80]
+                send_sms(f"OCR: {task_count} task(s) | {summary}")
+            except Exception as e:
+                print(f"SMS failed: {e}")
 
             events_queue.put({"status": "complete", **results})
 
@@ -300,7 +340,11 @@ def process_job(image_bytes, user_text, image_filename, events_queue):
                         backup_result_url(result_url, f"cinema_{uuid.uuid4().hex[:8]}.mp4", "video/mp4")
                     except Exception as e:
                         print(f"Drive backup failed: {e}")
-                    events_queue.put({"status": "complete", "type": "video", "result_url": result_url})
+                    try:
+                        send_sms(f"Cinema done: {result_url}")
+                    except Exception as e:
+                        print(f"SMS failed: {e}")
+                    events_queue.put({"status": "complete", "type": "cinema", "result_url": result_url})
                 else:
                     events_queue.put({"status": "error", "message": "No result from model"})
 
@@ -318,11 +362,15 @@ def process_job(image_bytes, user_text, image_filename, events_queue):
                         backup_result_url(result_url, f"video_{uuid.uuid4().hex[:8]}.mp4", "video/mp4")
                     except Exception as e:
                         print(f"Drive backup failed: {e}")
+                    try:
+                        send_sms(f"Video done: {result_url}")
+                    except Exception as e:
+                        print(f"SMS failed: {e}")
                     events_queue.put({"status": "complete", "type": "video", "result_url": result_url})
                 else:
                     events_queue.put({"status": "error", "message": "No result from model"})
 
-            else:  # image
+            else:  # image (simpsons)
                 user_prompt = prompt_text if prompt_text else DEFAULT_PROMPT_IMAGE
                 fal_response = fal_client.submit(IMAGE_MODEL, arguments={
                     "prompt": user_prompt, "image_url": fal_upload_url,
@@ -335,6 +383,10 @@ def process_job(image_bytes, user_text, image_filename, events_queue):
                         backup_result_url(result_url, f"image_{uuid.uuid4().hex[:8]}.jpg", "image/jpeg")
                     except Exception as e:
                         print(f"Drive backup failed: {e}")
+                    try:
+                        send_sms(f"Simpsons done: {result_url}")
+                    except Exception as e:
+                        print(f"SMS failed: {e}")
                     events_queue.put({"status": "complete", "type": "image", "result_url": result_url})
                 else:
                     events_queue.put({"status": "error", "message": "No result from model"})
@@ -368,11 +420,9 @@ async def on_ready():
 async def on_message(message):
     if message.author.bot:
         return
-
     if message.id in processed_messages:
         return
     processed_messages.add(message.id)
-
     if not message.attachments:
         return
 
@@ -405,6 +455,7 @@ async def on_message(message):
 
     if result["type"] == "ocr":
         parsed = result["parsed"]
+        task_count = result.get("task_count", 0)
         reply_parts = [f"\n**Summary:** {parsed['summary']}"]
         for field in ["who", "when", "where"]:
             val = parsed.get(field)
@@ -412,9 +463,9 @@ async def on_message(message):
                 reply_parts.append(f"**{field.capitalize()}:** {val}")
         status = []
         if result.get("todoist"):
-            status.append(f"Task: {parsed['todoist_title']}")
+            status.append(f"Tasks: {task_count} created")
         if result.get("calendar"):
-            status.append(f"Calendar: {parsed.get('event_title', parsed['todoist_title'])}")
+            status.append(f"Calendar: {parsed.get('event_title', 'event')}")
         if result.get("email"):
             status.append("Email sent")
         if result.get("drive"):
@@ -427,8 +478,7 @@ async def on_message(message):
         await message.channel.send("\n".join(reply_parts))
     else:
         result_url = result.get("result_url", "")
-        label = "cinema" if "cinema" in mode else result["type"]
-        await message.channel.send(f"{label}:\n{result_url}")
+        await message.channel.send(f"{result['type']}:\n{result_url}")
 
 
 # --- Flask PWA API ---
