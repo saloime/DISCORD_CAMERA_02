@@ -231,18 +231,29 @@ def send_email(subject, body_text, image_bytes, image_filename):
         server.send_message(msg)
 
 
-def send_sms(message):
-    """Send a short text via AT&T email-to-SMS gateway."""
+def send_sms(message, image_bytes=None, image_filename="result.jpg"):
+    """Send MMS (with image) or SMS via AT&T email gateway."""
     if not SMS_GATEWAY:
         return
-    msg = MIMEText(message[:160])
+    # Use mms.att.net for picture messages, txt.att.net for text-only
+    gateway = SMS_GATEWAY.replace("@txt.att.net", "@mms.att.net") if image_bytes else SMS_GATEWAY
+
+    if image_bytes:
+        msg = MIMEMultipart()
+        msg.attach(MIMEText(message[:160]))
+        img = MIMEImage(image_bytes)
+        img.add_header("Content-Disposition", "attachment", filename=image_filename)
+        msg.attach(img)
+    else:
+        msg = MIMEText(message[:160])
+
     msg["From"] = GMAIL_SENDER
-    msg["To"] = SMS_GATEWAY
+    msg["To"] = gateway
     msg["Subject"] = ""
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
         server.login(GMAIL_SENDER, GMAIL_SMTP_PASSWORD)
         server.send_message(msg)
-    print(f"SMS sent: {message[:60]}...")
+    print(f"MMS/SMS sent: {message[:60]}...")
 
 
 def process_job(image_bytes, user_text, image_filename, events_queue):
@@ -311,11 +322,11 @@ def process_job(image_bytes, user_text, image_filename, events_queue):
                 results["drive"] = False
                 print(f"Drive failed: {e}")
 
-            # SMS notification
+            # SMS notification with source image
             try:
                 task_count = results.get("task_count", 0)
                 summary = parsed.get("summary", "")[:80]
-                send_sms(f"OCR: {task_count} task(s) | {summary}")
+                send_sms(f"[ocr] {task_count} task(s) | {summary}", image_bytes, "ocr_source.jpg")
             except Exception as e:
                 print(f"SMS failed: {e}")
 
@@ -341,7 +352,8 @@ def process_job(image_bytes, user_text, image_filename, events_queue):
                     except Exception as e:
                         print(f"Drive backup failed: {e}")
                     try:
-                        send_sms(f"Cinema done: {result_url}")
+                        prompt_label = prompt_text[:30] if prompt_text else "default"
+                        send_sms(f"[cinema {prompt_label}] Done: {result_url}")
                     except Exception as e:
                         print(f"SMS failed: {e}")
                     events_queue.put({"status": "complete", "type": "cinema", "result_url": result_url})
@@ -363,7 +375,8 @@ def process_job(image_bytes, user_text, image_filename, events_queue):
                     except Exception as e:
                         print(f"Drive backup failed: {e}")
                     try:
-                        send_sms(f"Video done: {result_url}")
+                        prompt_label = prompt_text[:30] if prompt_text else "default"
+                        send_sms(f"[video {prompt_label}] Done: {result_url}")
                     except Exception as e:
                         print(f"SMS failed: {e}")
                     events_queue.put({"status": "complete", "type": "video", "result_url": result_url})
@@ -384,7 +397,10 @@ def process_job(image_bytes, user_text, image_filename, events_queue):
                     except Exception as e:
                         print(f"Drive backup failed: {e}")
                     try:
-                        send_sms(f"Simpsons done: {result_url}")
+                        # Download result image and send as MMS
+                        result_img = requests.get(result_url).content
+                        prompt_label = prompt_text[:30] if prompt_text else "simpsons"
+                        send_sms(f"[{prompt_label}]", result_img, "simpsons.jpg")
                     except Exception as e:
                         print(f"SMS failed: {e}")
                     events_queue.put({"status": "complete", "type": "image", "result_url": result_url})
