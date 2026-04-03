@@ -1,7 +1,7 @@
 fal-client
 discord
 requests
-dotenv
+python-dotenv
 openai
 google-auth
 google-auth-oauthlib

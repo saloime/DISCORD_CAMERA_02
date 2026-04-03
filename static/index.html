@@ -36,6 +36,8 @@ body { background: #000; color: #fff; font-family: -apple-system, system-ui, san
 .btn-row { display:flex; align-items:center; gap:18px; }
 #capture-btn { width:66px; height:66px; border-radius:50%; background:#fff; border:4px solid rgba(255,255,255,0.4); cursor:pointer; transition:transform 0.1s; }
 #capture-btn:active { transform:scale(0.9); }
+#scan-btn { width:40px; height:40px; border-radius:50%; background:rgba(10,132,255,0.3); border:2px solid rgba(10,132,255,0.6); color:#0a84ff; font-size:11px; font-weight:700; cursor:pointer; letter-spacing:0.5px; transition:transform 0.1s; display:flex; align-items:center; justify-content:center; }
+#scan-btn:active { transform:scale(0.9); }
 .lib-btn { width:40px; height:40px; border-radius:10px; background:rgba(255,255,255,0.15); border:none; color:#fff; font-size:11px; font-weight:600; cursor:pointer; letter-spacing:0.5px; }
 
 /* Preview controls (after capture) */
@@ -76,6 +78,27 @@ body { background: #000; color: #fff; font-family: -apple-system, system-ui, san
 .tag { display:inline-block; padding:3px 10px; border-radius:12px; font-size:12px; margin:2px 4px 2px 0; }
 .tag.ok { background:rgba(52,199,89,0.3); color:#34c759; }
 .tag.fail { background:rgba(255,69,58,0.3); color:#ff453a; }
+.tag.pending { background:rgba(10,132,255,0.2); color:#0a84ff; }
+
+/* Task confirmation UI */
+.task-confirm-list { margin:10px 0; }
+.task-confirm-item { display:flex; align-items:flex-start; gap:8px; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.08); }
+.task-confirm-item:last-child { border-bottom:none; }
+.task-check { width:20px; height:20px; margin-top:2px; accent-color:#0a84ff; flex-shrink:0; }
+.task-edit { flex:1; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); border-radius:8px; color:#fff; padding:6px 10px; font-size:13px; outline:none; }
+.task-edit:focus { border-color:rgba(10,132,255,0.5); }
+.task-due { font-size:11px; color:rgba(255,255,255,0.4); margin-top:4px; padding-left:28px; }
+.task-priority { font-size:10px; padding:1px 6px; border-radius:6px; margin-left:6px; }
+.task-priority.p2 { background:rgba(10,132,255,0.2); color:#0a84ff; }
+.task-priority.p3 { background:rgba(255,159,10,0.2); color:#ff9f0a; }
+.task-priority.p4 { background:rgba(255,69,58,0.2); color:#ff453a; }
+.confirm-btn { width:100%; padding:12px; border-radius:14px; font-size:15px; font-weight:600; border:none; cursor:pointer; margin-top:10px; }
+.confirm-btn.create { background:#0a84ff; color:#fff; }
+.confirm-btn.create:disabled { background:rgba(10,132,255,0.3); color:rgba(255,255,255,0.4); }
+.confirm-btn.skip { background:rgba(255,255,255,0.1); color:rgba(255,255,255,0.5); margin-top:6px; font-size:13px; }
+.cal-confirm { display:flex; align-items:center; gap:8px; padding:10px 0; margin-top:6px; border-top:1px solid rgba(255,255,255,0.08); }
+.cal-confirm label { font-size:13px; color:rgba(255,255,255,0.7); }
+.low-confidence { background:rgba(255,159,10,0.15); border:1px solid rgba(255,159,10,0.3); border-radius:10px; padding:8px 12px; margin:8px 0; font-size:12px; color:#ff9f0a; }
 
 .help-section { margin-bottom:14px; }
 .help-section h4 { font-size:13px; color:#0a84ff; margin-bottom:4px; }
@@ -115,6 +138,7 @@ canvas { display: none; }
       <label for="gallery-input"><div class="lib-btn">LIB</div></label>
       <input type="file" id="gallery-input" accept="image/*" style="display:none">
       <button id="capture-btn"></button>
+      <button id="scan-btn" title="One-tap OCR scan">OCR</button>
     </div>
   </div>
 
@@ -152,12 +176,12 @@ canvas { display: none; }
   <h3 style="margin-bottom:14px">How to Use</h3>
   <div class="help-section">
     <h4>Capture Flow</h4>
-    <p style="font-size:12px;color:rgba(255,255,255,0.5)">Tap the shutter or pick from Library. Review the photo, choose a mode and/or type a prompt, then tap Send.</p>
+    <p style="font-size:12px;color:rgba(255,255,255,0.5)">Tap the shutter or pick from Library. Review the photo, choose a mode and/or type a prompt, then tap Send. The blue OCR button next to the shutter captures and scans in one tap.</p>
   </div>
   <div class="help-section">
     <h4>Modes</h4>
     <div class="help-row"><span class="help-label">Simpsons</span><span class="help-desc">Default. Cartoon style transfer.</span></div>
-    <div class="help-row"><span class="help-label">OCR</span><span class="help-desc">Read text. Creates Todoist tasks (supports lists), email, calendar.</span></div>
+    <div class="help-row"><span class="help-label">OCR</span><span class="help-desc">Read text. Preview and edit tasks before creating in Todoist. Detects calendar events.</span></div>
     <div class="help-row"><span class="help-label">Video</span><span class="help-desc">Fast 1080p video (LTX). 10s default.</span></div>
     <div class="help-row"><span class="help-label">Cinema</span><span class="help-desc">Cinematic video (Kling v3). 10s default.</span></div>
   </div>
@@ -169,7 +193,7 @@ canvas { display: none; }
   </div>
   <div class="help-section">
     <h4>Tips</h4>
-    <p style="font-size:12px;color:rgba(255,255,255,0.45)">Text box overrides mode buttons. Handwritten lists become multiple Todoist tasks. All results are texted to your phone. Camera pauses when you switch to Queue.</p>
+    <p style="font-size:12px;color:rgba(255,255,255,0.45)">Text box overrides mode buttons. Handwritten lists become multiple Todoist tasks. All results are texted to your phone. Camera pauses when you switch to Queue. Your last-used mode is remembered between captures.</p>
   </div>
 </div>
 
@@ -202,7 +226,7 @@ const toastText = document.getElementById("toast-text");
 const flashOverlay = document.getElementById("flash-overlay");
 const previewImg = document.getElementById("preview-img");
 
-let activeMode = "";
+let activeMode = localStorage.getItem("camera_default_mode") || "";
 let currentStream = null;
 let flashOn = false;
 let capturedBlob = null;
@@ -262,6 +286,7 @@ function toggleFlash() {
 document.querySelectorAll(".chip").forEach(c => c.addEventListener("click", () => {
   document.querySelectorAll(".chip").forEach(x => x.classList.remove("active"));
   c.classList.add("active"); activeMode = c.dataset.mode;
+  localStorage.setItem("camera_default_mode", activeMode);
 }));
 
 // --- Toast ---
@@ -296,16 +321,33 @@ galleryInput.addEventListener("change", e => {
   galleryInput.value = "";
 });
 
+// One-tap OCR scan: capture + submit as OCR immediately
+document.getElementById("scan-btn").addEventListener("click", () => {
+  if (!video.srcObject) return;
+  fireFlash();
+  canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+  canvas.getContext("2d").drawImage(video, 0, 0);
+  canvas.toBlob(blob => {
+    if (!blob) return;
+    activeMode = "ocr";
+    localStorage.setItem("camera_default_mode", "ocr");
+    submitJob(blob);
+    showToast("Scanning...", 2000);
+  }, "image/jpeg", 0.85);
+});
+
 function showPreview(url) {
   previewImg.src = url;
   previewImg.classList.add("visible");
   stopCamera();
   document.getElementById("cam-controls").style.display = "none";
   document.getElementById("preview-controls").classList.add("visible");
-  // Reset mode to default
+  // Restore last-used mode (sticky)
+  const savedMode = localStorage.getItem("camera_default_mode") || "";
   document.querySelectorAll(".chip").forEach(c => c.classList.remove("active"));
-  document.querySelector('.chip[data-mode=""]').classList.add("active");
-  activeMode = "";
+  const target = document.querySelector('.chip[data-mode="'+savedMode+'"]') || document.querySelector('.chip[data-mode=""]');
+  target.classList.add("active");
+  activeMode = savedMode;
   textInput.value = "";
 }
 
@@ -442,10 +484,16 @@ function closePanel(name) { document.getElementById(name+"-panel").classList.rem
 function closeAllPanels() { document.querySelectorAll(".panel").forEach(p => p.classList.remove("visible")); }
 
 // --- Results ---
+let pendingOcrData = null; // Store OCR data awaiting task confirmation
+
 function showResult(data) {
   let html = "";
   if (data.type === "ocr") {
     const p = data.parsed || {};
+    const confidence = data.confidence || 1.0;
+    const isDeferred = data.todoist === "deferred";
+    pendingOcrData = isDeferred ? data : null;
+
     html += "<h3>"+esc(p.summary||"")+"</h3>";
     if (p.who) html += "<p><strong>Who:</strong> "+esc(p.who)+"</p>";
     if (p.when) html += "<p><strong>When:</strong> "+esc(p.when)+"</p>";
@@ -455,15 +503,52 @@ function showResult(data) {
       html += "<p><strong>Links:</strong></p>";
       p.web_links.forEach(l => { html += '<p><a href="'+esc(l)+'" style="color:#0a84ff" target="_blank">'+esc(l)+'</a></p>'; });
     }
+
+    if (confidence < 0.5) {
+      html += '<div class="low-confidence">Low confidence scan ('+Math.round(confidence*100)+'%) — review carefully before creating tasks</div>';
+    }
+
     const tasks = p.tasks || [];
-    if (tasks.length > 1) html += '<p style="margin-top:8px"><strong>Tasks ('+tasks.length+'):</strong></p>';
-    tasks.forEach(t => { html += '<p style="font-size:13px;color:rgba(255,255,255,0.6)">- '+esc(t.title)+(t.due_string?' <em>('+esc(t.due_string)+')</em>':'')+'</p>'; });
-    html += '<div style="margin-top:10px">';
-    html += data.todoist ? '<span class="tag ok">Todoist'+(data.task_count>1?' ('+data.task_count+')':'')+'</span>' : '<span class="tag fail">Todoist</span>';
-    if (data.calendar) html += '<span class="tag ok">Calendar</span>';
-    html += data.email ? '<span class="tag ok">Email</span>' : '<span class="tag fail">Email</span>';
-    html += data.drive ? '<span class="tag ok">Drive</span>' : '<span class="tag fail">Drive</span>';
-    html += "</div>";
+
+    if (isDeferred && tasks.length > 0) {
+      // Editable task confirmation UI
+      html += '<div class="task-confirm-list" id="task-confirm-list">';
+      tasks.forEach((t, i) => {
+        const checked = t.create !== false ? "checked" : "";
+        const pClass = t.priority >= 4 ? "p4" : t.priority >= 3 ? "p3" : t.priority >= 2 ? "p2" : "";
+        html += '<div class="task-confirm-item">';
+        html += '<input type="checkbox" class="task-check" data-idx="'+i+'" '+checked+'>';
+        html += '<input type="text" class="task-edit" data-idx="'+i+'" value="'+esc(t.title||"")+'">';
+        if (pClass) html += '<span class="task-priority '+pClass+'">P'+t.priority+'</span>';
+        html += '</div>';
+        if (t.due_string) html += '<div class="task-due">'+esc(t.due_string)+'</div>';
+      });
+      html += '</div>';
+
+      // Calendar toggle if event detected
+      if (p.is_event && p.event_start) {
+        const calTitle = esc(p.event_title || p.summary || "Event");
+        html += '<div class="cal-confirm">';
+        html += '<input type="checkbox" id="cal-check" checked class="task-check">';
+        html += '<label for="cal-check">Add to calendar: '+calTitle+'</label>';
+        html += '</div>';
+      }
+
+      html += '<button class="confirm-btn create" id="confirm-tasks-btn" onclick="confirmTasks()">Create Tasks</button>';
+      html += '<button class="confirm-btn skip" onclick="skipTasks()">Skip</button>';
+    } else if (!isDeferred) {
+      // Already created (Discord path or after confirmation) — show status tags
+      html += '<div style="margin-top:10px">';
+      if (tasks.length > 0) {
+        tasks.forEach(t => { html += '<p style="font-size:13px;color:rgba(255,255,255,0.6)">- '+esc(t.title)+(t.due_string?' <em>('+esc(t.due_string)+')</em>':'')+'</p>'; });
+      }
+      html += data.todoist === true ? '<span class="tag ok">Todoist'+(data.task_count>1?' ('+data.task_count+')':'')+'</span>' : (data.todoist === "skipped" ? '<span class="tag pending">Tasks skipped</span>' : '<span class="tag fail">Todoist</span>');
+      if (data.calendar === true) html += '<span class="tag ok">Calendar</span>';
+      html += data.email ? '<span class="tag ok">Email</span>' : '<span class="tag fail">Email</span>';
+      html += data.drive ? '<span class="tag ok">Drive</span>' : '<span class="tag fail">Drive</span>';
+      html += "</div>";
+    }
+
     if (p.full_text) {
       html += '<details style="margin-top:10px"><summary style="color:rgba(255,255,255,0.4);font-size:12px;cursor:pointer">Full text</summary>';
       html += '<p style="white-space:pre-wrap;margin-top:6px;font-size:12px">'+esc(p.full_text)+'</p></details>';
@@ -478,6 +563,64 @@ function showResult(data) {
   document.getElementById("result-content").innerHTML = html;
   closeAllPanels();
   document.getElementById("result-panel").classList.add("visible");
+}
+
+async function confirmTasks() {
+  if (!pendingOcrData) return;
+  const btn = document.getElementById("confirm-tasks-btn");
+  btn.disabled = true;
+  btn.textContent = "Creating...";
+
+  const parsed = pendingOcrData.parsed;
+  const tasks = (parsed.tasks || []).map((t, i) => {
+    const checkEl = document.querySelector('.task-check[data-idx="'+i+'"]');
+    const editEl = document.querySelector('.task-edit[data-idx="'+i+'"]');
+    return {
+      title: editEl ? editEl.value : t.title,
+      due_string: t.due_string || null,
+      priority: t.priority || 1,
+      create: checkEl ? checkEl.checked : true
+    };
+  });
+
+  const calCheck = document.getElementById("cal-check");
+  const createCal = calCheck ? calCheck.checked : false;
+
+  try {
+    const res = await fetch("/api/confirm-tasks", {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + API_TOKEN, "Content-Type": "application/json" },
+      body: JSON.stringify({ parsed, tasks, create_calendar: createCal })
+    });
+    const result = await res.json();
+
+    // Update the data and re-render as completed
+    pendingOcrData.todoist = result.todoist;
+    pendingOcrData.task_count = result.task_count;
+    pendingOcrData.task_urls = result.task_urls || [];
+    pendingOcrData.calendar = result.calendar;
+    // Update task list with user edits
+    pendingOcrData.parsed.tasks = tasks.filter(t => t.create);
+    const completed = pendingOcrData;
+    pendingOcrData = null;
+    showResult(completed);
+    showToast("Tasks created" + (result.task_count > 0 ? " (" + result.task_count + ")" : ""), 2000);
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = "Create Tasks";
+    showToast("Error: " + e.message, 3000);
+  }
+}
+
+function skipTasks() {
+  if (!pendingOcrData) { closePanel("result"); return; }
+  pendingOcrData.todoist = "skipped";
+  pendingOcrData.task_count = 0;
+  pendingOcrData.calendar = false;
+  const skipped = pendingOcrData;
+  pendingOcrData = null;
+  showResult(skipped);
+  showToast("Tasks skipped", 1500);
 }
 
 // --- History ---

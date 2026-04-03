@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: discord-camera
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn camera:app --bind 0.0.0.0:$PORT --worker-class gevent --timeout 600
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.11"
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: FAL_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: TODOIST_API_TOKEN
+        sync: false
+      - key: GMAIL_SENDER
+        sync: false
+      - key: GMAIL_RECIPIENT
+        sync: false
+      - key: GMAIL_SMTP_PASSWORD
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_B64
+        sync: false
+      - key: GOOGLE_CLIENT_ID_DISCORD_BOT
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET_DISCORD_BOT
+        sync: false
+      - key: GOOGLE_REFRESH_TOKEN_DISCORD_BOT
+        sync: false
+      - key: GOOGLE_SHEET_ID
+        sync: false
+      - key: FOLDER_ID
+        sync: false
+      - key: PWA_API_TOKEN
+        sync: false
+      - key: SMS_GATEWAY
+        sync: false
