@@ -160,6 +160,10 @@ def parse_image_with_openai(image_url, user_note=""):
         "- If the image is a conversation/chat, the task is the action implied: 'Reply to ...', "
         "'Meet ... at ...', 'Follow up with ...'.\n"
         "- If the image is a list (todo, shopping, checklist), return EACH item as a separate task.\n"
+        "- If the image is a business sign, storefront, or business card, the task is "
+        "'Save contact for [Business Name]' with any phone number, address, website, or hours "
+        "included in the title (e.g. 'Save contact for Thompson\\'s Carpet — 718-399-3400'). "
+        "Always set create: true for these.\n"
         '- "create": false for items that are purely informational with no action needed.\n'
         '- "create": true for items the user should act on.\n'
         '- "priority": 1=normal, 2=medium, 3=high, 4=urgent. Use urgency signals '
@@ -254,7 +258,7 @@ def create_todoist_tasks(parsed, task_overrides=None, user_note=""):
             if task_url:
                 task_urls.append(task_url)
         except Exception as e:
-            print(f"Todoist task failed ({task.get('title')}): {e}")
+            print(f"Todoist task failed ({task.get('title')}): {e}", flush=True)
     return created, task_urls
 
 
@@ -377,7 +381,7 @@ def process_job(image_bytes, user_text, image_filename, events_queue, defer_task
                 except Exception as e:
                     results["todoist"] = False
                     results["task_count"] = 0
-                    print(f"Todoist failed: {e}")
+                    print(f"Todoist failed: {e}", flush=True)
 
                 # Auto-create calendar event
                 results["calendar"] = False
@@ -387,7 +391,7 @@ def process_job(image_bytes, user_text, image_filename, events_queue, defer_task
                         results["calendar"] = True
                         results["calendar_link"] = cal_event.get("htmlLink", "")
                     except Exception as e:
-                        print(f"Calendar failed: {e}")
+                        print(f"Calendar failed: {e}", flush=True)
 
             # Email
             try:
@@ -412,7 +416,7 @@ def process_job(image_bytes, user_text, image_filename, events_queue, defer_task
                 results["email"] = True
             except Exception as e:
                 results["email"] = False
-                print(f"Email failed: {e}")
+                print(f"Email failed: {e}", flush=True)
 
             # Drive
             try:
@@ -420,7 +424,7 @@ def process_job(image_bytes, user_text, image_filename, events_queue, defer_task
                 results["drive"] = True
             except Exception as e:
                 results["drive"] = False
-                print(f"Drive failed: {e}")
+                print(f"Drive failed: {e}", flush=True)
 
             # SMS
             try:
@@ -429,7 +433,7 @@ def process_job(image_bytes, user_text, image_filename, events_queue, defer_task
                 sms_msg = f"[ocr] {task_count} task(s) | {summary}" if not defer_tasks else f"[ocr] {summary}"
                 send_sms(sms_msg, image_bytes, "ocr_source.jpg")
             except Exception as e:
-                print(f"SMS failed: {e}")
+                print(f"SMS failed: {e}", flush=True)
 
             events_queue.put({"status": "complete", **results})
 
@@ -451,12 +455,12 @@ def process_job(image_bytes, user_text, image_filename, events_queue, defer_task
                     try:
                         backup_result_url(result_url, f"cinema_{uuid.uuid4().hex[:8]}.mp4", "video/mp4")
                     except Exception as e:
-                        print(f"Drive backup failed: {e}")
+                        print(f"Drive backup failed: {e}", flush=True)
                     try:
                         prompt_label = prompt_text[:30] if prompt_text else "default"
                         send_sms(f"[cinema {prompt_label}] Done: {result_url}")
                     except Exception as e:
-                        print(f"SMS failed: {e}")
+                        print(f"SMS failed: {e}", flush=True)
                     events_queue.put({"status": "complete", "type": "cinema", "result_url": result_url})
                 else:
                     events_queue.put({"status": "error", "message": "No result from model"})
@@ -474,12 +478,12 @@ def process_job(image_bytes, user_text, image_filename, events_queue, defer_task
                     try:
                         backup_result_url(result_url, f"video_{uuid.uuid4().hex[:8]}.mp4", "video/mp4")
                     except Exception as e:
-                        print(f"Drive backup failed: {e}")
+                        print(f"Drive backup failed: {e}", flush=True)
                     try:
                         prompt_label = prompt_text[:30] if prompt_text else "default"
                         send_sms(f"[video {prompt_label}] Done: {result_url}")
                     except Exception as e:
-                        print(f"SMS failed: {e}")
+                        print(f"SMS failed: {e}", flush=True)
                     events_queue.put({"status": "complete", "type": "video", "result_url": result_url})
                 else:
                     events_queue.put({"status": "error", "message": "No result from model"})
@@ -496,19 +500,20 @@ def process_job(image_bytes, user_text, image_filename, events_queue, defer_task
                     try:
                         backup_result_url(result_url, f"image_{uuid.uuid4().hex[:8]}.jpg", "image/jpeg")
                     except Exception as e:
-                        print(f"Drive backup failed: {e}")
+                        print(f"Drive backup failed: {e}", flush=True)
                     try:
                         # Download result image and send as MMS
                         result_img = requests.get(result_url).content
                         prompt_label = prompt_text[:30] if prompt_text else "simpsons"
                         send_sms(f"[{prompt_label}]", result_img, "simpsons.jpg")
                     except Exception as e:
-                        print(f"SMS failed: {e}")
+                        print(f"SMS failed: {e}", flush=True)
                     events_queue.put({"status": "complete", "type": "image", "result_url": result_url})
                 else:
                     events_queue.put({"status": "error", "message": "No result from model"})
 
     except Exception as e:
+        print(f"process_job error ({mode}): {e}", flush=True)
         events_queue.put({"status": "error", "message": str(e)})
     finally:
         os.remove(temp_path)
@@ -554,20 +559,32 @@ async def on_message(message):
     status_msg = {"ocr": "scanning image...", "cinema": "sending cinema...", "video": "sending video...", "image": "sending image..."}
     await message.channel.send(status_msg.get(mode, "processing..."))
 
-    image_response = requests.get(attachment.url)
-    q = Queue()
+    try:
+        image_response = requests.get(attachment.url)
+        q = Queue()
 
-    def run():
-        process_job(image_response.content, user_text, attachment.filename or "image.jpg", q)
+        def run():
+            process_job(image_response.content, user_text, attachment.filename or "image.jpg", q)
 
-    await asyncio.get_event_loop().run_in_executor(executor, run)
+        await asyncio.wait_for(
+            asyncio.get_event_loop().run_in_executor(executor, run),
+            timeout=300  # 5 minute timeout
+        )
 
-    result = q.get()
-    while result["status"] not in ("complete", "error"):
         result = q.get()
+        while result["status"] not in ("complete", "error"):
+            result = q.get()
 
-    if result["status"] == "error":
-        await message.channel.send(f"Error: {result['message']}")
+        if result["status"] == "error":
+            await message.channel.send(f"Error: {result['message']}")
+            return
+    except asyncio.TimeoutError:
+        print(f"on_message timeout: mode={mode}, user={message.author}", flush=True)
+        await message.channel.send("Error: processing timed out after 5 minutes.")
+        return
+    except Exception as e:
+        print(f"on_message error: {e}", flush=True)
+        await message.channel.send(f"Error: {e}")
         return
 
     if result["type"] == "ocr":
@@ -712,7 +729,7 @@ def api_confirm_tasks():
     except Exception as e:
         results["todoist"] = False
         results["task_count"] = 0
-        print(f"Todoist confirm failed: {e}")
+        print(f"Todoist confirm failed: {e}", flush=True)
 
     # Create calendar event if confirmed
     results["calendar"] = False
@@ -724,7 +741,7 @@ def api_confirm_tasks():
             create_calendar_event(parsed)
             results["calendar"] = True
         except Exception as e:
-            print(f"Calendar confirm failed: {e}")
+            print(f"Calendar confirm failed: {e}", flush=True)
 
     return jsonify(results)
 
